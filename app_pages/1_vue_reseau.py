@@ -1,122 +1,19 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
 import numpy as np
+import sys, os
 
-G10 = px.colors.qualitative.G10
+# -------------------------------------------------
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-
-# ============================
-# HELPERS
-# ============================
-
-def clean_df(df_in: pd.DataFrame) -> pd.DataFrame:
-    """Standardise types/strings. (No session filtering here.)"""
-    df = df_in.copy()
-
-    # Types
-    df["session"] = df["session"].astype(int)
-
-    # String normalization
-    str_cols = ["operateur", "examen", "bloc_epreuve", "type_epreuve", "epreuve"]
-    for col in str_cols:
-        df[col] = (
-            df[col]
-            .astype(str)
-            .str.strip()
-            .str.replace(r"\s+", " ", regex=True)
-        )
-
-    # Canonical casing
-    df["examen"] = df["examen"].str.upper()
-    df["epreuve"] = df["epreuve"].str.upper()
-
-    return df
-
-
-def mean_by_year(df_in: pd.DataFrame, value_col: str = "moyenne") -> pd.Series:
-    return df_in.groupby("session")[value_col].mean().sort_index()
-
-
-def metric_pack(
-    series_by_year: pd.Series,
-    sessions: list[int],
-    year_current: int = 2025,
-    year_prev: int = 2024,
-):
-    """Return (current_value, delta_vs_prev, chart_df_indexed_by_session)."""
-    values = {y: series_by_year.get(y, pd.NA) for y in sessions}
-    values = {y: float(v) if pd.notna(v) else float("nan") for y, v in values.items()}
-
-    v_cur = values.get(year_current, float("nan"))
-    v_prev = values.get(year_prev, float("nan"))
-    delta = None if (pd.isna(v_cur) or pd.isna(v_prev)) else round(v_cur - v_prev, 2)
-
-    chart = (
-        pd.DataFrame({"session": sessions, "mean": [values[y] for y in sessions]})
-        .set_index("session")
-    )
-    return v_cur, delta, chart
-
-
-def compute_indicator_metrics(df: pd.DataFrame, sessions: list[int]) -> dict:
-    metrics = {}
-
-    bac_series = mean_by_year(df[df["examen"] == "BAC"])
-    metrics["BAC"] = metric_pack(bac_series, sessions=sessions)
-
-    dnb_mask = (df["examen"] == "DNB") & (df["bloc_epreuve"] == "DNB_FINAL")
-    dnb_series = mean_by_year(df[dnb_mask])
-    metrics["DNB"] = metric_pack(dnb_series, sessions=sessions)
-
-    return metrics
-
-
-def build_trend(df: pd.DataFrame) -> pd.DataFrame:
-    df_all = pd.concat(
-        [
-            df[df["examen"] == "BAC"].assign(indicateur="BAC"),
-            df[df["examen"] == "DNB"].assign(indicateur="DNB"),
-        ],
-        ignore_index=True,
-    ).drop_duplicates()
-
-    return (
-        df_all.groupby(["session", "operateur", "indicateur"], dropna=False)["moyenne"]
-        .mean()
-        .reset_index(name="mean")
-    )
-
-
-def make_trend_figure(trend: pd.DataFrame):
-    fig = px.line(
-        trend,
-        x="session",
-        y="mean",
-        color="operateur",
-        facet_col="indicateur",
-        markers=True,
-        color_discrete_sequence=G10,
-    )
-
-    fig.update_xaxes(type="category", title_text="")
-    fig.update_yaxes(title_text="", showticklabels=True)
-    fig.for_each_annotation(lambda a: a.update(text=a.text.split("=")[-1]))
-
-    fig.update_layout(
-        legend_title_text="",
-        legend=dict(
-            orientation="h",
-            yanchor="top",
-            y=1.15,
-            xanchor="center",
-            x=0.5,
-        ),
-        margin=dict(l=20, r=20, t=0, b=0),
-    )
-
-    return fig
-
+# Import explicite recommandé (évite les collisions de noms)
+from utils.functions import (
+    clean_df,
+    compute_indicator_metrics,
+    build_trend,
+    make_trend_figure,
+    make_bac_dnb_bar,
+)
 
 # ============================
 # MAIN
@@ -134,11 +31,25 @@ SESSIONS = sorted(df["session"].dropna().unique().tolist())
 # filtrage cohérent
 df = df[df["session"].isin(SESSIONS)].copy()
 
-nb_etablissements = df["etablissement"].nunique()
-metrics = compute_indicator_metrics(df, sessions=SESSIONS)
+# Années courante / précédente dérivées des sessions
+YEAR_CUR = max(SESSIONS) if SESSIONS else 2025
+YEAR_PREV = sorted(SESSIONS)[-2] if len(SESSIONS) >= 2 else YEAR_CUR
 
-bac_v25, bac_delta, _ = metrics["BAC"]
-dnb_v25, dnb_delta, _ = metrics["DNB"]
+nb_etablissements = df["etablissement"].nunique()
+
+metrics = compute_indicator_metrics(
+    df=df,
+    sessions=SESSIONS,
+    year_current=YEAR_CUR,
+    year_prev=YEAR_PREV,
+    dnb_final_bloc="DNB_FINAL",
+)
+
+bac_v_cur, bac_delta, _ = metrics["BAC"]
+dnb_v_cur, dnb_delta, _ = metrics["DNB"]
+
+st.title(f"Réseau EFE Maroc - Vue globale")
+
 
 st.subheader("Indicateurs clés")
 
@@ -148,15 +59,15 @@ with c1:
     st.metric("Nombre d’établissements", nb_etablissements, border=True)
 
     st.metric(
-        "Moyenne BAC (2025)",
-        value="—" if pd.isna(bac_v25) else f"{bac_v25:.2f}",
+        f"Moyenne BAC ({YEAR_CUR})",
+        value="—" if pd.isna(bac_v_cur) else f"{bac_v_cur:.2f}",
         delta=None if bac_delta is None else f"{bac_delta:+.2f}",
         border=True,
     )
 
     st.metric(
-        "Moyenne DNB (2025)",
-        value="—" if pd.isna(dnb_v25) else f"{dnb_v25:.2f}",
+        f"Moyenne DNB ({YEAR_CUR})",
+        value="—" if pd.isna(dnb_v_cur) else f"{dnb_v_cur:.2f}",
         delta=None if dnb_delta is None else f"{dnb_delta:+.2f}",
         border=True,
     )
@@ -166,72 +77,14 @@ with c2:
     fig_trend = make_trend_figure(trend)
     st.plotly_chart(fig_trend, use_container_width=True)
 
-
 # ============================
-# BAR CHART : BAC par bloc_epreuve x session (groupé)
+# BAR CHART : BAC + DNB par session (groupé)
 # ============================
 st.divider()
-
-st.write("### Évolution des moyennes par épreuve)")
-
-# bac = df[df["examen"] == "BAC"].copy()
-
-# bar_df = (
-#     bac.groupby(["bloc_epreuve", "session"], dropna=False)["moyenne"]
-#     .mean()
-#     .reset_index()
-# )
-
-# bar_df = bar_df[bar_df["bloc_epreuve"].notna()].copy()
-
-# # session en catégorie (string) pour Plotly + ordre stable
-# bar_df["session"] = bar_df["session"].astype(int)
-# bar_df = bar_df[bar_df["session"].isin(SESSIONS)]
-# bar_df["session"] = bar_df["session"].astype(str)
-
-# fig_bar = px.bar(
-#     bar_df,
-#     x="bloc_epreuve",
-#     y="moyenne",
-#     color="session",
-#     barmode="group",
-#     category_orders={"session": [str(s) for s in SESSIONS]},
-#     text_auto=".2f",
-#     color_discrete_sequence=G10,
-# )
-
-# fig_bar.update_layout(
-#     bargap=0.35,
-#     bargroupgap=0.0,
-#     xaxis_title="Bloc d’épreuve (BAC)",
-#     yaxis_title="Moyenne",
-#     legend_title_text="Session",
-#     margin=dict(l=20, r=20, t=30, b=20),
-# )
-# fig_bar.update_xaxes(title_text="")
-# fig_bar.update_yaxes(title_text="")
-
-# fig_bar.update_layout(
-#     legend_title_text="",
-#     legend=dict(
-#         orientation="h",
-#         yanchor="top",
-#         y=1.15,
-#         xanchor="center",
-#         x=0.5,
-#     ),
-#     margin=dict(l=0, r=0, t=0, b=0),
-# )
-
-# st.plotly_chart(fig_bar, use_container_width=True)
-
-import plotly.express as px
-import pandas as pd
-
-G10 = px.colors.qualitative.G10
+st.write("### Évolution des moyennes par épreuve")
 
 # ----------------------------
-# PARAMÈTRES
+# PARAMÈTRES (exclusions DNB)
 # ----------------------------
 DNB_EPREUVE_EXCLUDE = {
     "GRAMMAIRE ET COMPRÉHENSION",
@@ -239,127 +92,24 @@ DNB_EPREUVE_EXCLUDE = {
     "RÉDACTION",
 }
 
-
-
-DNB_COLOR_OFFSET = 5  # décalage dans G10 pour distinguer visuellement BAC / DNB
-
-
-def make_bac_dnb_bar(df: pd.DataFrame, sessions: list[int]):
-    dfx = df.copy()
-
-    # Sécurisation casse / espaces
-    dfx["bloc_epreuve_u"] = dfx["bloc_epreuve"].astype(str).str.upper().str.strip()
-    dfx["epreuve_u"] = dfx["epreuve"].astype(str).str.upper().str.strip()
-
-    # ============================
-    # BAC → blocs d’épreuves
-    # ============================
-    bac = dfx[dfx["examen"] == "BAC"].copy()
-
-    bac_bar = (
-        bac.groupby(["bloc_epreuve", "session"], dropna=False)["moyenne"]
-           .mean()
-           .reset_index()
-    )
-
-    bac_bar = bac_bar[bac_bar["bloc_epreuve"].notna()].copy()
-    bac_bar["indicateur"] = "BAC"
-    bac_bar["group"] = bac_bar["bloc_epreuve"]
-
-    # ============================
-    # DNB → épreuves (avec exclusions)
-    # ============================
-    dnb = dfx[
-        (dfx["examen"] == "DNB")
-        & (~dfx["epreuve_u"].isin(DNB_EPREUVE_EXCLUDE))
-    ].copy()
-
-    dnb_bar = (
-        dnb.groupby(["epreuve", "session"], dropna=False)["moyenne"]
-           .mean()
-           .reset_index()
-    )
-
-    dnb_bar = dnb_bar[dnb_bar["epreuve"].notna()].copy()
-    dnb_bar["indicateur"] = "DNB"
-    dnb_bar["group"] = dnb_bar["epreuve"]
-
-
-    # ============================
-    # Combinaison
-    # ============================
-    bar_df = pd.concat([bac_bar, dnb_bar], ignore_index=True)
-
-    bar_df["session"] = bar_df["session"].astype(int)
-    bar_df = bar_df[bar_df["session"].isin(sessions)].copy()
-
-    bar_df["session_str"] = bar_df["session"].astype(str)
-
-    # Libellé X final
-    bar_df["x_label"] = bar_df["group"].astype(str)
-
-    # Série couleur (indicateur + session)
-    bar_df["serie"] = bar_df["indicateur"] + " " + bar_df["session_str"]
-
-    # Ordre X : BAC puis DNB
-    x_order = (
-        sorted(bar_df.loc[bar_df["indicateur"] == "BAC", "x_label"].unique())
-        + sorted(bar_df.loc[bar_df["indicateur"] == "DNB", "x_label"].unique())
-    )
-
-    # ============================
-    # Couleurs (G10 séparées)
-    # ============================
-    color_map = {}
-
-    for i, s in enumerate(sessions):
-        color_map[f"BAC {s}"] = G10[i % len(G10)]
-        color_map[f"DNB {s}"] = G10[(DNB_COLOR_OFFSET + i) % len(G10)]
-
-    # ============================
-    # Figure
-    # ============================
-    fig = px.bar(
-        bar_df,
-        x="x_label",
-        y="moyenne",
-        color="serie",
-        barmode="group",
-        category_orders={"x_label": x_order},
-        color_discrete_map=color_map,
-        text_auto=".2f",
-    )
-
-    fig.update_layout(
-        xaxis_title="Blocs / Épreuves (BAC + DNB)",
-        yaxis_title="Moyenne",
-        legend_title_text="",
-        bargap=0.01,
-        bargroupgap=0.05,
-        width=900,
-        margin=dict(l=00, r=00, t=20, b=20),
-        legend=dict(
-        orientation="h",
-        yanchor="top",
-        y=1.15,
-        xanchor="center",
-        x=0.5,
-        ),
-    )
-    fig.update_traces(textfont_size=50, textangle=0, textposition="outside")
-
-    fig.update_xaxes(tickangle=-25,title="")
-    fig.update_yaxes(tickangle=-25,title="")
-
-    return fig
-
-
-# ============================
-# USAGE
-# ============================
-fig = make_bac_dnb_bar(df, sessions=SESSIONS)
+fig = make_bac_dnb_bar(
+    df=df,
+    sessions=SESSIONS,
+    dnb_epreuve_exclude=DNB_EPREUVE_EXCLUDE,
+    dnb_color_offset=5,  # optionnel
+)
 st.plotly_chart(fig, use_container_width=True)
 
+
+st.divider()
+
+# =========================================================
+# ECART AU RESEAU (delta)
+# =========================================================
+st.subheader("Évolution des moyennes par spécialité")
+# ============================
+# TABLE : BAC (EDS) - pivots, ranks, tendances
+# ============================
 
 BAC_BLOC_EXCLUDE = {
     "GO",
@@ -372,6 +122,7 @@ BAC_BLOC_EXCLUDE = {
 
 df_bac = df[df["examen"] == "BAC"].copy()
 
+# NOTE: vous filtrez ici sur "epreuve" (comme votre code original)
 df_bac["bloc_u"] = (
     df_bac["epreuve"]
     .astype(str)
@@ -402,54 +153,49 @@ for y in SESSIONS:
     if col in wide_bac.columns:
         wide_bac[f"rank_{y}"] = wide_bac[col].rank(ascending=False, method="min")
 
-
 moy_cols = [f"moy_{y}" for y in SESSIONS]
 
 def row_to_list(row):
     return [None if pd.isna(row[c]) else float(row[c]) for c in moy_cols]
 
-wide_bac["trend_bar"]  = wide_bac.apply(row_to_list, axis=1)
-
+wide_bac["trend_bar"] = wide_bac.apply(row_to_list, axis=1)
 
 # Évol% première -> dernière session
-y0, y1 = SESSIONS[0], SESSIONS[-1]
-wide_bac["evol_pct"] = (wide_bac[f"moy_{y1}"] / wide_bac[f"moy_{y0}"] - 1.0) * 100
-
-# Score 0..100 (clamp)
-clip_min, clip_max = -10.0, 10.0
-evol_clipped = wide_bac["evol_pct"].clip(clip_min, clip_max)
-wide_bac["evol_progress"] = ((evol_clipped - clip_min) / (clip_max - clip_min) * 100)
-wide_bac["evol_progress"] = wide_bac["evol_progress"].fillna(0).round(0)
-
-
+if len(SESSIONS) >= 2:
+    y0, y1 = SESSIONS[0], SESSIONS[-1]
+    wide_bac["evol_pct"] = (wide_bac[f"moy_{y1}"] / wide_bac[f"moy_{y0}"] - 1.0) * 100
+else:
+    wide_bac["evol_pct"] = np.nan
 
 # bornes communes (évite autoscale)
-y_min = float(np.nanmin(wide_bac[moy_cols].values))
-y_max = float(np.nanmax(wide_bac[moy_cols].values))
+if moy_cols and wide_bac[moy_cols].to_numpy().size:
+    y_min = float(np.nanmin(wide_bac[moy_cols].values))
+    y_max = float(np.nanmax(wide_bac[moy_cols].values))
+else:
+    y_min, y_max = 0.0, 1.0
 
 # optionnel : tri
-wide_bac = wide_bac.sort_values("evol_pct", ascending=False)
+wide_bac = wide_bac.sort_values("evol_pct", ascending=False, na_position="last")
 
 column_config = {
     "epreuve": st.column_config.TextColumn("BAC - EDS", width="medium"),
 }
 
 for y in SESSIONS:
-    column_config[f"moy_{y}"]  = st.column_config.NumberColumn(f"Moy {y}", format="%.2f")
+    column_config[f"moy_{y}"] = st.column_config.NumberColumn(f"Moy {y}", format="%.2f")
     column_config[f"rank_{y}"] = st.column_config.NumberColumn(f"Rank {y}", format="%.0f")
 
-column_config.update({
-    "evol_pct": st.column_config.NumberColumn(f"Évol {SESSIONS[0]}→{SESSIONS[-1]}", format="%+.1f%%"),
-    # "trend_line": st.column_config.LineChartColumn("Tendance (ligne)", y_min=y_min, y_max=y_max),
-    "trend_bar": st.column_config.BarChartColumn("Tendance (barres)", y_min=y_min, y_max=y_max),
-    # "evol_progress": st.column_config.ProgressColumn(
-    #     "Évol (progress)",
-    #     min_value=0,
-    #     max_value=100,
-    #     format="%.0f",  # <-- clé pour éviter 6300% / 10000%
-    #     help=f"Score 0–100 basé sur une évolution clampée entre {clip_min}% et {clip_max}%",
-    # ),
-})
+if len(SESSIONS) >= 2:
+    column_config.update({
+        "evol_pct": st.column_config.NumberColumn(f"Évol {SESSIONS[0]}→{SESSIONS[-1]}", format="%+.1f%%"),
+        "trend_bar": st.column_config.BarChartColumn("Tendance (barres)", y_min=y_min, y_max=y_max),
+    })
+else:
+    column_config.update({
+        "evol_pct": st.column_config.NumberColumn("Évol", format="%+.1f%%"),
+        "trend_bar": st.column_config.BarChartColumn("Tendance (barres)", y_min=y_min, y_max=y_max),
+    })
+
 ordered_cols = (
     ["epreuve"]
     + [f"moy_{y}" for y in SESSIONS]
@@ -457,6 +203,8 @@ ordered_cols = (
     + ["evol_pct", "trend_bar"]
 )
 
+# sécurisation: ne garder que les colonnes existantes
+ordered_cols = [c for c in ordered_cols if c in wide_bac.columns]
 wide_bac = wide_bac[ordered_cols]
 
 st.dataframe(
