@@ -7,13 +7,7 @@ import sys, os
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 # Import explicite recommandé (évite les collisions de noms)
-from utils.functions import (
-    clean_df,
-    compute_indicator_metrics,
-    build_trend,
-    make_trend_figure,
-    make_bac_dnb_bar,
-)
+from utils.functions import *
 
 # ============================
 # MAIN
@@ -75,7 +69,7 @@ with c1:
 with c2:
     trend = build_trend(df)
     fig_trend = make_trend_figure(trend)
-    st.plotly_chart(fig_trend, width='stretch')
+    st.plotly_chart(fig_trend, width='stretch', config=PLOTLY_CONFIG)
 
 # ============================
 # BAR CHART : BAC + DNB par session (groupé)
@@ -98,7 +92,7 @@ fig = make_bac_dnb_bar(
     dnb_epreuve_exclude=DNB_EPREUVE_EXCLUDE,
     dnb_color_offset=5,  # optionnel
 )
-st.plotly_chart(fig, width='stretch')
+st.plotly_chart(fig, width='stretch', config=PLOTLY_CONFIG)
 
 
 st.divider()

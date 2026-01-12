@@ -1,24 +1,15 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
 import sys, os
+# -------------------------------------------------
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+# Import explicite recommandé (évite les collisions de noms)
+from utils.functions import *
 
 # -------------------------------------------------
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-# Import explicite (évite collisions + rend le refactor clair)
-from utils.functions import (
-    clean_df,
-    norm_series,
-    series_by_sessions,
-    current_and_delta,
-    build_rank_pivot_with_total,
-    get_rank_row_over_total,
-    build_delta_long,
-    delta_long_to_bar_input,
-    make_bac_dnb_bar,
-    render_cards_grid,
-)
 
 # =========================================================
 # PARAMÈTRES (mais sans dépendances implicites dans functions.py)
@@ -61,6 +52,21 @@ df_all["examen_u"] = norm_series(df_all["examen"])
 df_all["bloc_u"] = norm_series(df_all["bloc_epreuve"])
 df_all["epreuve_u"] = norm_series(df_all["epreuve"])
 df_all["operateur_u"] = norm_series(df_all["operateur"])
+
+# BAC : 1 ligne par (session, etablissement)
+bac_net_global = (
+    df_all[df_all["examen_u"] == "BAC"]
+    .groupby(["session", "etablissement"], as_index=False)
+    .agg(moyenne=("moyenne", "mean"))
+)
+
+# DNB FINAL : 1 ligne par (session, etablissement)
+dnb_net_global = (
+    df_all[(df_all["examen_u"] == "DNB") & (df_all["bloc_u"] == "DNB_FINAL")]
+    .groupby(["session", "etablissement"], as_index=False)
+    .agg(moyenne=("moyenne", "mean"))
+)
+
 
 # =========================================================
 # SIDEBAR: ÉTABLISSEMENT (OSUI)
@@ -129,6 +135,29 @@ with c2:
         height=70,
     )
 
+st.markdown("### Classement réseau")
+
+years = sorted(df_all["session"].dropna().astype(int).unique().tolist())
+
+
+
+tab1, tab2 = st.tabs(["BAC", "DNB"])
+
+# Un seul toggle pour piloter toute la page
+mode_swarm = st.toggle("Vue par proximité", value=False)
+
+# if mode_swarm:
+#     st.caption("Chaque point est un établissement :  plus les points sont serrés verticalement, plus les résultats entre les écoles sont similaires.")
+
+
+with tab1:
+    display_comparison_row(bac_net_global, "BAC", etab, mode_swarm)
+with tab2:
+    display_comparison_row(dnb_net_global, "DNB", etab, mode_swarm)
+
+# # Application au DNB
+# display_comparison_row(dnb_net_global, "DNB", etab, mode_swarm)
+
 st.divider()
 
 # =========================================================
@@ -150,7 +179,7 @@ fig = make_bac_dnb_bar(
     dnb_epreuve_exclude=DNB_EPREUVE_EXCLUDE,  # ok même si bar_input a peu de colonnes DNB (sécurisé)
     dnb_color_offset=5,
 )
-st.plotly_chart(fig, width='stretch')
+st.plotly_chart(fig, width='stretch', config=PLOTLY_CONFIG)
 
 
 

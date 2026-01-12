@@ -6,10 +6,20 @@ import plotly.express as px
 # Optionnel: seulement si vous gardez les fonctions UI dans ce fichier
 import streamlit as st
 import altair as alt
+import collections
 
 
 # Palette Plotly
 G10 = px.colors.qualitative.G10
+
+# Ajoute ici ta config de téléchargement
+PLOTLY_CONFIG = {
+    'toImageButtonOptions': {
+        'format': 'png',
+        'scale': 2 # Haute qualité
+    },
+    'displaylogo': False
+}
 
 
 # =========================================================
@@ -255,7 +265,7 @@ def get_rank_row_over_total(
 
 
 # =========================================================
-# UI CARDS (Streamlit + Altair)
+#UI CARDS (Streamlit + Altair)
 # =========================================================
 def render_card(
     title: str,
@@ -325,6 +335,7 @@ def render_cards_grid(
                     year_current=year_current,
                     year_prev=year_prev,
                 )
+
 
 
 # =========================================================
@@ -526,3 +537,191 @@ def make_bac_dnb_bar(
     fig.update_yaxes(title="")
 
     return fig
+
+
+
+def get_swarm_fig(df_year, title, etab, point_size=13, fig_width=350):
+    """
+    Génère une figure Beeswarm (algorithme de précision) avec :
+    - Une zone d'excellence (Top 25% du réseau)
+    - Un badge dynamique indiquant le Top % de l'établissement sélectionné
+    - Une ligne verticale de repère
+    """
+    # 1. Nettoyage et tri des données (fondamental pour l'algorithme de collision)
+    df_plot = df_year.dropna(subset=["moyenne"]).sort_values("moyenne").copy()
+    if df_plot.empty:
+        return None
+
+    # 2. Calculs statistiques pour le positionnement
+    total_etabs = len(df_plot)
+    # On calcule le seuil du Top 25% (quartile supérieur)
+    threshold_top_25 = df_plot["moyenne"].quantile(0.75)
+
+    min_x, max_x = df_plot["moyenne"].min(), df_plot["moyenne"].max()
+    # Sécurité pour l'échelle si toutes les notes sont identiques
+    if min_x == max_x:
+        min_x -= 1
+        max_x += 1
+
+    # 3. Algorithme de collision Swarm (Positionnement des points en C-shape)
+    bin_fraction = 0.95
+    gap_multiplier = 1.2
+    bin_counter = collections.Counter()
+    list_of_rows = []
+
+    for _, row in df_plot.iterrows():
+        x_val = row["moyenne"]
+        # Attribution d'un "bin" (colonne verticale) basé sur la largeur de la figure
+        bin_idx = (((fig_width * bin_fraction * (x_val - min_x)) / (max_x - min_x)) // point_size)
+        bin_counter.update([bin_idx])
+        list_of_rows.append({
+            "etablissement": row["etablissement"],
+            "x": x_val,
+            "y_slot": bin_counter[bin_idx],
+            "bin": bin_idx
+        })
+
+    # Calcul des offsets pour éviter le chevauchement entre bins adjacents
+    current_bin, offset = -1, 0
+    for i, row in enumerate(list_of_rows):
+        if current_bin != row["bin"]:
+            current_bin, offset = row["bin"], 0
+        for j in range(i):
+            other = list_of_rows[j]
+            if other["bin"] == current_bin - 1:
+                while (other["y_slot"] == row["y_slot"] + offset and
+                       (((fig_width * (row["x"] - other["x"])) / (max_x - min_x)) // point_size) < 1):
+                    offset += 1
+        row["y_slot"] += offset
+        # Centrage vertical autour de zéro
+        sign = -1 if row["y_slot"] % 2 == 1 else 1
+        row["y"] = (row["y_slot"] // 2) * sign * point_size * gap_multiplier
+
+    # Ajustement pour aligner parfaitement les nombres pairs
+    for row in list_of_rows:
+        if bin_counter[row["bin"]] % 2 == 0:
+            row["y"] -= (point_size * gap_multiplier) / 2
+
+    df_swarm = pd.DataFrame(list_of_rows)
+    df_swarm["highlight"] = np.where(df_swarm["etablissement"] == etab, "Sélection", "Autres")
+
+    # 4. Création du graphique de base
+    fig = px.scatter(
+        df_swarm,
+        x="x",
+        y="y",
+        color="highlight",
+        hover_name="etablissement",
+        hover_data={'highlight':False},
+        color_discrete_map={"Sélection": "#FF4B4B", "Autres": "#B0B0B0"},
+        title=title
+    )
+
+    # 5. Ajout de la Zone d'Excellence (Rectangle vert transparent)
+    fig.add_vrect(
+        x0=threshold_top_25, x1=max_x + 0.5,
+        fillcolor="rgba(0, 200, 100, 0.1)", # Vert très pâle
+        layer="below",
+        line_width=0,
+        annotation_text="Top 25%",
+        annotation_position="top left",
+        annotation_font=dict(size=9, color="green", style="italic")
+    )
+
+    # 6. Indicateur de l'établissement sélectionné (Ligne + Badge Top %)
+    if etab in df_swarm["etablissement"].values:
+        # Calcul du rang réel (1 = premier)
+        df_plot["rang"] = df_plot["moyenne"].rank(ascending=False, method="min")
+        rang_etab = df_plot.loc[df_plot["etablissement"] == etab, "rang"].iloc[0]
+        v_x = df_plot.loc[df_plot["etablissement"] == etab, "moyenne"].iloc[0]
+
+        # Calcul du percentile
+        top_pct = (rang_etab / total_etabs) * 100
+
+        # Ligne de repère verticale
+        fig.add_vline(x=v_x, line_dash="dash", line_color="#FF4B4B", opacity=0.8)
+
+        # Badge dynamique
+        fig.add_annotation(
+            x=v_x,
+            y=max(df_swarm["y"]) * 1.4, # Placé au dessus de l'essaim
+            text=f"<b>{etab}</b><br>TOP {top_pct:.0f}%",
+            showarrow=False,
+            font=dict(color="white", size=10),
+            bgcolor="#FF4B4B",
+            borderpad=6,
+            yshift=15
+        )
+
+    # 7. Mise en forme finale
+    fig.update_traces(
+        marker=dict(size=point_size, line=dict(width=0.5, color='white')),
+        hovertemplate="<b>%{hovertext}</b><br>Moyenne: %{x:.2f}"
+    )
+
+    fig.update_yaxes(
+        showticklabels=False,
+        showgrid=False,
+        zeroline=True,
+        zerolinecolor="rgba(0,0,0,0.1)",
+        title=""
+    )
+
+    fig.update_xaxes(
+        title="Moyenne BAC",
+        range=[min_x - 0.5, max_x + 0.5],
+        showgrid=True,
+        gridcolor="rgba(0,0,0,0.05)"
+    )
+
+    fig.update_layout(
+        showlegend=False,
+        margin=dict(l=10, r=10, t=40, b=10),
+        height=350,
+        plot_bgcolor="white"
+    )
+
+    return fig
+
+
+def display_comparison_row(df_global, label_title, etab_name, mode_swarm_active):
+    """
+    Affiche une ligne de 3 colonnes pour un examen donné (BAC ou DNB)
+    """
+    # Récupération des 3 dernières années disponibles pour ce DataFrame spécifique
+    years_available = sorted(df_global["session"].dropna().astype(int).unique().tolist())
+    target_years = years_available[-3:]
+
+    cols = st.columns(3)
+
+    for i, year in enumerate(target_years):
+        with cols[i]:
+            # Filtrage pour l'année
+            df_year = df_global[df_global["session"].astype(int) == year].copy()
+
+            # On s'assure d'avoir une seule ligne par établissement (moyenne déjà calculée normalement)
+            df_year = df_year.groupby(["etablissement"], as_index=False).agg(moyenne=("moyenne", "mean"))
+
+            if mode_swarm_active:
+                # Appel de la fonction Swarm que nous avons finalisée
+                fig = get_swarm_fig(df_year, f"{label_title} {year}", etab=etab_name)
+                if fig:
+                    st.plotly_chart(fig, width='stretch', config=PLOTLY_CONFIG, key=f"swarm_{label_title}_{year}")
+            else:
+                # Mode Barres (Décroissant)
+                df_year = df_year.sort_values("moyenne", ascending=False)
+                df_year["highlight"] = np.where(df_year["etablissement"] == etab_name, "Sélection", "Autres")
+
+                fig = px.bar(
+                    df_year, x="etablissement", y="moyenne", color="highlight",
+                    category_orders={"etablissement": df_year["etablissement"].tolist()},
+                    color_discrete_map={"Sélection": "#FF4B4B", "Autres": "#B0B0B0"},
+                    title=f"{label_title} {year}",
+                    hover_name="etablissement",
+                    hover_data={'highlight':False,
+                                "etablissement":False},
+                )
+                fig.update_xaxes(tickangle=-30, tickfont=dict(size=6), title="")
+                fig.update_yaxes(title="")
+                fig.update_layout(showlegend=False, margin=dict(l=10, r=10, t=40, b=10), height=350)
+                st.plotly_chart(fig, width='stretch', config=PLOTLY_CONFIG, key=f"bar_{label_title}_{year}")
