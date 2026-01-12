@@ -8,6 +8,8 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 # Import explicite recommandé (évite les collisions de noms)
 from utils.functions import *
+from utils.functions import PLOTLY_CONFIG
+
 
 # ============================
 # MAIN
