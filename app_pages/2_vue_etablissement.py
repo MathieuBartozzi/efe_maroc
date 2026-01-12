@@ -102,11 +102,11 @@ with c1:
         delta="—" if pd.isna(dlt) else f"{dlt:+.2f}",
         border=True,
     )
-    st.caption("Rang (réseau) / total établissements")
+    st.caption("Rang")
     st.dataframe(
         get_rank_row_over_total(rank_bac_global, n_bac, etab=etab, sessions=SESSIONS),
         hide_index=True,
-        use_container_width=True,
+        width='stretch',
         height=70,
     )
 
@@ -121,11 +121,11 @@ with c2:
         delta="—" if pd.isna(dlt) else f"{dlt:+.2f}",
         border=True,
     )
-    st.caption("Rang (réseau) / total établissements")
+    st.caption("Rang")
     st.dataframe(
         get_rank_row_over_total(rank_dnb_global, n_dnb, etab=etab, sessions=SESSIONS),
         hide_index=True,
-        use_container_width=True,
+        width='stretch',
         height=70,
     )
 
@@ -150,7 +150,7 @@ fig = make_bac_dnb_bar(
     dnb_epreuve_exclude=DNB_EPREUVE_EXCLUDE,  # ok même si bar_input a peu de colonnes DNB (sécurisé)
     dnb_color_offset=5,
 )
-st.plotly_chart(fig, use_container_width=True)
+st.plotly_chart(fig, width='stretch')
 
 
 

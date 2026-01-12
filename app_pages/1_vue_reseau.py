@@ -75,7 +75,7 @@ with c1:
 with c2:
     trend = build_trend(df)
     fig_trend = make_trend_figure(trend)
-    st.plotly_chart(fig_trend, use_container_width=True)
+    st.plotly_chart(fig_trend, width='stretch')
 
 # ============================
 # BAR CHART : BAC + DNB par session (groupé)
@@ -98,7 +98,7 @@ fig = make_bac_dnb_bar(
     dnb_epreuve_exclude=DNB_EPREUVE_EXCLUDE,
     dnb_color_offset=5,  # optionnel
 )
-st.plotly_chart(fig, use_container_width=True)
+st.plotly_chart(fig, width='stretch')
 
 
 st.divider()
@@ -210,6 +210,6 @@ wide_bac = wide_bac[ordered_cols]
 st.dataframe(
     wide_bac,
     hide_index=True,
-    use_container_width=True,
+    width='stretch',
     column_config=column_config,
 )
