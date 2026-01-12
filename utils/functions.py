@@ -605,12 +605,22 @@ def get_swarm_fig(df_year, title, etab, point_size=13, fig_width=350):
     df_swarm = pd.DataFrame(list_of_rows)
     df_swarm["highlight"] = np.where(df_swarm["etablissement"] == etab, "Sélection", "Autres")
 
+    # Rang réel (1 = meilleur)
+    df_plot["rang"] = df_plot["moyenne"].rank(ascending=False, method="min").astype(int)
+
+    df_swarm = df_swarm.merge(
+        df_plot[["etablissement", "rang"]],
+        on="etablissement",
+        how="left"
+    )
+
     # 4. Création du graphique de base
     fig = px.scatter(
         df_swarm,
         x="x",
         y="y",
         color="highlight",
+        custom_data=["rang"],
         hover_name="etablissement",
         hover_data={'highlight':False},
         color_discrete_map={"Sélection": "#FF4B4B", "Autres": "#B0B0B0"},
@@ -658,6 +668,24 @@ def get_swarm_fig(df_year, title, etab, point_size=13, fig_width=350):
         marker=dict(size=point_size, line=dict(width=0.5, color='white')),
         hovertemplate="<b>%{hovertext}</b><br>Moyenne: %{x:.2f}"
     )
+    fig.update_traces(
+        selector=dict(name="Autres"),
+        hovertemplate=(
+            "Moyenne: %{x:.2f}<br>"
+            "Rang: %{customdata[0]}<extra></extra>"
+        )
+    )
+
+
+    fig.update_traces(
+        selector=dict(name="Sélection"),
+        hovertemplate=(
+            f"<b>{etab}</b><br>"
+            "Moyenne: %{x:.2f}<br>"
+            "Rang: %{customdata[0]}<extra></extra>"
+        )
+    )
+
 
     fig.update_yaxes(
         showticklabels=False,
@@ -710,18 +738,59 @@ def display_comparison_row(df_global, label_title, etab_name, mode_swarm_active)
             else:
                 # Mode Barres (Décroissant)
                 df_year = df_year.sort_values("moyenne", ascending=False)
+                df_year["rang"] = np.arange(1, len(df_year) + 1)  # 1 = meilleur
                 df_year["highlight"] = np.where(df_year["etablissement"] == etab_name, "Sélection", "Autres")
 
+
                 fig = px.bar(
-                    df_year, x="etablissement", y="moyenne", color="highlight",
+                    df_year,
+                    x="etablissement",
+                    y="moyenne",
+                    color="highlight",
                     category_orders={"etablissement": df_year["etablissement"].tolist()},
                     color_discrete_map={"Sélection": "#FF4B4B", "Autres": "#B0B0B0"},
                     title=f"{label_title} {year}",
-                    hover_name="etablissement",
-                    hover_data={'highlight':False,
-                                "etablissement":False},
+                    custom_data=["rang", "etablissement"],
                 )
-                fig.update_xaxes(tickangle=-30, tickfont=dict(size=6), title="")
+                # Sécurité : l'établissement existe ?
+                if etab_name in df_year["etablissement"].values:
+                    rang_etab = int(df_year.loc[df_year["etablissement"] == etab_name, "rang"].iloc[0])
+                    total_etabs = len(df_year)
+
+                    # Ligne de repère (sur la catégorie X)
+                    fig.add_vline(
+                        x=etab_name,
+                        line_dash="dash",
+                        line_color="#FF4B4B",
+                        opacity=0.8
+                    )
+
+                    # Badge au-dessus (coordonnées en "paper" pour Y)
+                    fig.add_annotation(
+                        x=etab_name,
+                        xref="x",
+                        y=1.08,
+                        yref="paper",
+                        text=f"<b>{etab_name}</b><br>{rang_etab:.0f}/{total_etabs}",
+                        showarrow=False,
+                        font=dict(color="white", size=10),
+                        bgcolor="#FF4B4B",
+                        borderpad=6
+                    )
+
+                fig.update_xaxes(showticklabels=False, title="")
                 fig.update_yaxes(title="")
                 fig.update_layout(showlegend=False, margin=dict(l=10, r=10, t=40, b=10), height=350)
+                # Autres: pas de nom, mais moyenne + rang
+                fig.update_traces(
+                    selector=dict(name="Autres"),
+                    hovertemplate="Moyenne: %{y:.2f}<br>Rang: %{customdata[0]}<extra></extra>"
+                )
+
+                # Sélection: nom + moyenne + rang
+                fig.update_traces(
+                    selector=dict(name="Sélection"),
+                    hovertemplate="<b>%{customdata[1]}</b><br>Moyenne: %{y:.2f}<br>Rang: %{customdata[0]}<extra></extra>"
+                )
+
                 st.plotly_chart(fig, width='stretch', config=PLOTLY_CONFIG, key=f"bar_{label_title}_{year}")

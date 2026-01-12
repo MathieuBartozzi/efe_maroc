@@ -146,17 +146,12 @@ tab1, tab2 = st.tabs(["BAC", "DNB"])
 # Un seul toggle pour piloter toute la page
 mode_swarm = st.toggle("Vue par proximité", value=False)
 
-# if mode_swarm:
-#     st.caption("Chaque point est un établissement :  plus les points sont serrés verticalement, plus les résultats entre les écoles sont similaires.")
-
 
 with tab1:
     display_comparison_row(bac_net_global, "BAC", etab, mode_swarm)
 with tab2:
     display_comparison_row(dnb_net_global, "DNB", etab, mode_swarm)
 
-# # Application au DNB
-# display_comparison_row(dnb_net_global, "DNB", etab, mode_swarm)
 
 st.divider()
 
