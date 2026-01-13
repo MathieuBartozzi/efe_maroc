@@ -1,6 +1,35 @@
 import streamlit as st
 import sys, os
 
+# =========================
+# MODE MAINTENANCE (tout en haut)
+# =========================
+MAINTENANCE_MODE = st.secrets["admin"]["MAINTENANCE_MODE"]
+
+
+if MAINTENANCE_MODE:
+    st.set_page_config(
+        page_title="Maintenance - MLF Dashboard",
+        page_icon="🛠️",
+        layout="centered",
+    )
+
+    st.markdown(
+        """
+        <div style="max-width:700px;margin:0 auto;padding-top:80px;text-align:center;">
+            <h1>Maintenance en cours</h1>
+            <p style="font-size: 1.1rem;">
+                Le tableau de bord est temporairement indisponible.
+            </p>
+            <p style="color: #666;">
+                Merci de réessayer un peu plus tard.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.stop()
+
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 # -------------------------------------------------
 from utils.loader import load_data
