@@ -7,6 +7,9 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 # Import explicite recommandé (évite les collisions de noms)
 from utils.functions import *
 from utils.functions import PLOTLY_CONFIG
+from utils.auth import authenticate
+
+authenticate(auth_profile="auth_selected_email")
 
 
 # -------------------------------------------------
@@ -110,13 +113,13 @@ with c1:
         delta="—" if pd.isna(dlt) else f"{dlt:+.2f}",
         border=True,
     )
-    st.caption("Rang")
-    st.dataframe(
-        get_rank_row_over_total(rank_bac_global, n_bac, etab=etab, sessions=SESSIONS),
-        hide_index=True,
-        width='stretch',
-        height=70,
-    )
+    # st.caption("Rang")
+    # st.dataframe(
+    #     get_rank_row_over_total(rank_bac_global, n_bac, etab=etab, sessions=SESSIONS),
+    #     hide_index=True,
+    #     width='stretch',
+    #     height=70,
+    # )
 
 with c2:
     dnb_mask = (df_e["examen_u"] == "DNB") & (df_e["bloc_u"] == "DNB_FINAL")
@@ -129,33 +132,36 @@ with c2:
         delta="—" if pd.isna(dlt) else f"{dlt:+.2f}",
         border=True,
     )
-    st.caption("Rang")
-    st.dataframe(
-        get_rank_row_over_total(rank_dnb_global, n_dnb, etab=etab, sessions=SESSIONS),
-        hide_index=True,
-        width='stretch',
-        height=70,
-    )
-
-st.markdown("### Classement réseau")
-
-years = sorted(df_all["session"].dropna().astype(int).unique().tolist())
-
-
-
-tab1, tab2 = st.tabs(["BAC", "DNB"])
-
-# Un seul toggle pour piloter toute la page
-mode_swarm = st.toggle("Vue par proximité", value=False)
-
-
-with tab1:
-    display_comparison_row(bac_net_global, "BAC", etab, mode_swarm)
-with tab2:
-    display_comparison_row(dnb_net_global, "DNB", etab, mode_swarm)
-
-
+    # st.caption("Rang")
+    # st.dataframe(
+    #     get_rank_row_over_total(rank_dnb_global, n_dnb, etab=etab, sessions=SESSIONS),
+    #     hide_index=True,
+    #     width='stretch',
+    #     height=70,
+    # )
 st.divider()
+
+
+if st.session_state.get("can_view_reseau_rank", False):
+
+    st.subheader("Classement des établissements du réseau")
+    st.warning(
+        "**Accès restreint** — Ces informations sont réservées à un usage interne. "
+        "Merci de ne pas les diffuser.", icon=":material/warning:"
+    )
+    years = sorted(df_all["session"].dropna().astype(int).unique().tolist())
+
+    tab1, tab2 = st.tabs(["BAC", "DNB"])
+
+    # Un seul toggle pour piloter toute la page
+    mode_swarm = st.toggle("Vue par proximité", value=False)
+
+    with tab1:
+        display_comparison_row(bac_net_global, "BAC", etab, mode_swarm)
+    with tab2:
+        display_comparison_row(dnb_net_global, "DNB", etab, mode_swarm)
+
+    st.divider()
 
 # =========================================================
 # ECART AU RESEAU (delta)
