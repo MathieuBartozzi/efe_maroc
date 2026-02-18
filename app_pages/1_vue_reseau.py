@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import sys, os
+import plotly.graph_objects as go
+
 
 # -------------------------------------------------
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -47,6 +49,22 @@ metrics = compute_indicator_metrics(
 bac_v_cur, bac_delta, _ = metrics["BAC"]
 dnb_v_cur, dnb_delta, _ = metrics["DNB"]
 
+def compute_network_dispersion(df, examen):
+    d = df[df["examen"] == examen].copy()
+
+    agg = (
+        d.groupby("session")
+         .apply(lambda x: pd.Series({
+             "mean_reseau": np.average(x["moyenne"], weights=x["nb_presents"]),
+             "sigma_reseau": np.average(x["ecart_type"], weights=x["nb_presents"]),
+             "total_eleves": x["nb_presents"].sum()
+         }))
+         .reset_index()
+    )
+
+    return agg
+
+
 st.title(f"Réseau EFE Maroc - Vue globale")
 
 
@@ -72,10 +90,15 @@ with c1:
     )
 
 with c2:
-    trend = build_trend(df)
-    fig_trend = make_trend_figure(trend)
+    # trend = build_trend(df)
+    # fig_trend = make_trend_figure(trend)
+    # st.plotly_chart(fig_trend, width='stretch', config=PLOTLY_CONFIG)
+    trend_means = build_trend_means_by_operator(df)
+    trend_sigma = build_trend_sigma_network(df)
+    fig_trend = make_trend_means_with_sigma_subplot(trend_means, trend_sigma)
     st.plotly_chart(fig_trend, width='stretch', config=PLOTLY_CONFIG)
 
+st.caption("Les moyennes sont pondérées par le nombre d’élèves présents. En 2025, le BAC progresse légèrement (13,37) tandis que le DNB recule (12,61). Le σ, stable autour de 3,5–3,8, indique une dispersion modérée des résultats au niveau du réseau.")
 # ============================
 # BAR CHART : BAC + DNB par session (groupé)
 # ============================
@@ -212,3 +235,4 @@ st.dataframe(
     width='stretch',
     column_config=column_config,
 )
+

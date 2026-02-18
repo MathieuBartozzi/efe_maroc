@@ -7,6 +7,8 @@ import plotly.express as px
 import streamlit as st
 import altair as alt
 import collections
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 
 # Palette Plotly
@@ -142,13 +144,16 @@ def current_and_delta(
     return v_cur, delta
 
 
-# =========================================================
-# TREND (Plotly)
-# =========================================================
-def build_trend(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Trend opérateur: BAC + DNB (moyenne), par session / opérateur / indicateur.
-    """
+def _safe_wavg(values: pd.Series, weights: pd.Series) -> float:
+    v = pd.to_numeric(values, errors="coerce").to_numpy()
+    w = pd.to_numeric(weights, errors="coerce").fillna(0.0).to_numpy()
+    mask = (~np.isnan(v)) & (w > 0)
+    if mask.sum() == 0:
+        return np.nan
+    return float(np.average(v[mask], weights=w[mask]))
+
+
+def build_trend_means_by_operator(df: pd.DataFrame) -> pd.DataFrame:
     df_all = pd.concat(
         [
             df[df["examen"] == "BAC"].assign(indicateur="BAC"),
@@ -157,40 +162,153 @@ def build_trend(df: pd.DataFrame) -> pd.DataFrame:
         ignore_index=True,
     ).drop_duplicates()
 
-    return (
-        df_all.groupby(["session", "operateur", "indicateur"], dropna=False)["moyenne"]
-        .mean()
-        .reset_index(name="mean")
+    df_all["moyenne"] = pd.to_numeric(df_all["moyenne"], errors="coerce")
+    df_all["nb_presents"] = pd.to_numeric(df_all["nb_presents"], errors="coerce").fillna(0.0)
+
+    out = (
+        df_all.groupby(["session", "operateur", "indicateur"], dropna=False)
+        .apply(lambda x: pd.Series({"mean": _safe_wavg(x["moyenne"], x["nb_presents"])}))
+        .reset_index()
+    )
+    return out
+
+
+def build_trend_sigma_network(df: pd.DataFrame) -> pd.DataFrame:
+    df_all = pd.concat(
+        [
+            df[df["examen"] == "BAC"].assign(indicateur="BAC"),
+            df[df["examen"] == "DNB"].assign(indicateur="DNB"),
+        ],
+        ignore_index=True,
+    ).drop_duplicates()
+
+    df_all["ecart_type"] = pd.to_numeric(df_all["ecart_type"], errors="coerce")
+    df_all["nb_presents"] = pd.to_numeric(df_all["nb_presents"], errors="coerce").fillna(0.0)
+
+    out = (
+        df_all.groupby(["session", "indicateur"], dropna=False)
+        .apply(lambda x: pd.Series({"sigma": _safe_wavg(x["ecart_type"], x["nb_presents"])}))
+        .reset_index()
+    )
+    return out
+
+
+def make_trend_means_with_sigma_subplot(
+    trend_means: pd.DataFrame,
+    trend_sigma: pd.DataFrame,
+):
+    """
+    2x2 subplot:
+      - row 1: mean par opérateur (lines)
+      - row 2: sigma réseau (area)
+    Cols: BAC, DNB (selon trend_means/trend_sigma)
+    """
+    # ordre stable
+    indicateurs = [x for x in ["BAC", "DNB"] if x in set(trend_means["indicateur"]) or x in set(trend_sigma["indicateur"])]
+    if not indicateurs:
+        indicateurs = sorted(set(trend_means["indicateur"]).union(set(trend_sigma["indicateur"])))
+
+    fig = make_subplots(
+        rows=2,
+        cols=len(indicateurs),
+        shared_xaxes=True,
+        vertical_spacing=0.08,
+        row_heights=[0.8, 0.2],
+        subplot_titles=indicateurs,
     )
 
+    # couleurs opérateur cohérentes
+    ops = sorted(trend_means["operateur"].dropna().unique().tolist())
+    color_map = {op: G10[i % len(G10)] for i, op in enumerate(ops)}
 
-def make_trend_figure(trend: pd.DataFrame):
-    fig = px.line(
-        trend,
-        x="session",
-        y="mean",
-        color="operateur",
-        facet_col="indicateur",
-        markers=True,
-        color_discrete_sequence=G10,
-    )
+    for c, indic in enumerate(indicateurs, start=1):
+        # --- row 1: moyennes opérateur ---
+        sub_m = trend_means[trend_means["indicateur"] == indic].sort_values("session")
+        for op in ops:
+            d = sub_m[sub_m["operateur"] == op]
+            if d.empty:
+                continue
+            fig.add_trace(
+                go.Scatter(
+                    x=d["session"],
+                    y=d["mean"],
+                    mode="lines+markers",
+                    name=op,
+                    showlegend=(c == 1),
+                    legendgroup=op,
+                    line=dict(width=3, color=color_map[op]),
+                    marker=dict(size=7),
 
-    fig.update_xaxes(type="category", title_text="")
-    fig.update_yaxes(title_text="", showticklabels=True)
-    fig.for_each_annotation(lambda a: a.update(text=a.text.split("=")[-1]))
+                ),
+                row=1,
+                col=c,
+            )
+
+        # --- row 2: sigma réseau (area) ---
+        sub_s = (
+            trend_sigma[trend_sigma["indicateur"] == indic]
+            .dropna(subset=["sigma"])
+            .sort_values("session")
+        )
+        if not sub_s.empty:
+            # area
+            fig.add_trace(
+                go.Scatter(
+                    x=sub_s["session"],
+                    y=sub_s["sigma"],
+                    mode="none",
+                    name="σ réseau",
+                    showlegend=False,
+                    line=dict(width=2),
+                    fill="tozeroy",
+                    opacity=0.25,
+                    fillcolor="rgba(120,120,120,0.25)",  # 👈 gris clair transparent
+                    # line=dict(color="rgba(120,120,120,1)"),
+                    hovertemplate="σ réseau: %{y:.2f}<extra></extra>",
+                ),
+                row=2,
+                col=c,
+            )
+            # # petite ligne par-dessus pour précision
+            # fig.add_trace(
+            #     go.Scatter(
+            #         x=sub_s["session"],
+            #         y=sub_s["sigma"],
+            #         mode="lines+markers",
+            #         name="σ réseau (ligne)",
+            #         showlegend=False,
+            #         line=dict(width=2, dash="dot"),
+            #         marker=dict(size=6),
+            #         opacity=0.8,
+            #         hovertemplate="σ réseau: %{y:.2f}<extra></extra>",
+            #     ),
+            #     row=2,
+            #     col=c,
+            #)
+
+        # axes
+        fig.update_xaxes(type="category", title_text="", row=2, col=c)
+        fig.update_yaxes(title_text="", row=1, col=c)
+        fig.update_yaxes(title_text="σ", row=2, col=c,range=[3.4, 3.8])
 
     fig.update_layout(
         legend_title_text="",
         legend=dict(
             orientation="h",
             yanchor="top",
-            y=1.15,
+            y=1.18,
             xanchor="center",
             x=0.5,
         ),
         margin=dict(l=20, r=20, t=0, b=0),
+        height=480,
     )
+
     return fig
+
+
+
+
 
 
 # =========================================================

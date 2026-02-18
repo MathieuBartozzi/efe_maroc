@@ -56,13 +56,13 @@ if not os.path.exists(logo_path):
 
 
 # --- choisir le mode d'authentification utilisateur ---
-# user=authenticate(auth_profile="auth_all")
-user=authenticate(auth_profile="auth_selected_email")
+user=authenticate(auth_profile="auth_all")
+# user=authenticate(auth_profile="auth_selected_email")
 
 
-if st.session_state.get("show_welcome", False):
-    st.success(f"Bienvenue, {user} ! 🎉")
-    st.session_state["show_welcome"] = False
+# if st.session_state.get("show_welcome", False):
+#     st.success(f"Bienvenue, {user} ! 🎉")
+#     st.session_state["show_welcome"] = False
 
 # --- Chargement des données ---
 with st.spinner("Chargement des données…"):
