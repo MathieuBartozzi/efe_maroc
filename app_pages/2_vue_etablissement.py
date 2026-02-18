@@ -314,3 +314,63 @@ with tab_spe:
             year_prev=YEAR_PREV,
             cols=4,
         )
+
+
+
+st.subheader("Dispersion : Moyenne vs Écart-type")
+
+# Color map identique au bar chart
+dnb_color_offset = 5
+color_map = {}
+for i, s in enumerate(SESSIONS):
+    color_map[f"BAC {s}"] = G10[i % len(G10)]
+    color_map[f"DNB {s}"] = G10[(dnb_color_offset + i) % len(G10)]
+
+tab_bac, tab_dnb = st.tabs(["BAC", "DNB"])
+
+with tab_bac:
+
+    df_scope_bac = df_all[df_all["examen_u"] == "BAC"].copy()
+
+    fig = make_mean_std_scatter(
+        df_scope=df_scope_bac,
+        exam="BAC",
+        sessions=SESSIONS,
+        etab_selected=etab,
+        color_map=color_map,
+        group_col=None,
+        group_value=None,
+        only_one_year=None,
+        show_network_trend=True,
+        show_change_badge=True,
+    )
+
+    if fig:
+        st.plotly_chart(fig, width="stretch", config=PLOTLY_CONFIG, key="scatter_bac")
+
+
+with tab_dnb:
+
+    dnb_u_excl = {x.upper().strip() for x in DNB_EPREUVE_EXCLUDE}
+
+    df_scope_dnb = df_all[
+        (df_all["examen_u"] == "DNB") &
+        (df_all["bloc_u"] == "DNB_FINAL") &
+        (~df_all["epreuve_u"].isin(dnb_u_excl))
+    ].copy()
+
+    fig = make_mean_std_scatter(
+        df_scope=df_scope_dnb,
+        exam="DNB",
+        sessions=SESSIONS,
+        etab_selected=etab,
+        color_map=color_map,
+        group_col=None,
+        group_value=None,
+        only_one_year=None,
+        show_network_trend=True,
+        show_change_badge=True,
+    )
+
+    if fig:
+        st.plotly_chart(fig, width="stretch", config=PLOTLY_CONFIG, key="scatter_dnb")
