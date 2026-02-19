@@ -252,23 +252,38 @@ def make_trend_means_with_sigma_subplot(
         )
         if not sub_s.empty:
             # area
-            fig.add_trace(
-                go.Scatter(
-                    x=sub_s["session"],
-                    y=sub_s["sigma"],
-                    mode="none",
-                    name="σ réseau",
-                    showlegend=False,
-                    line=dict(width=2),
-                    fill="tozeroy",
-                    opacity=0.25,
-                    fillcolor="rgba(120,120,120,0.25)",  # 👈 gris clair transparent
-                    # line=dict(color="rgba(120,120,120,1)"),
-                    hovertemplate="σ réseau: %{y:.2f}<extra></extra>",
-                ),
-                row=2,
-                col=c,
-            )
+            # fig.add_trace(
+            #     go.Scatter(
+            #         x=sub_s["session"],
+            #         y=sub_s["sigma"],
+            #         mode="none",
+            #         name="σ réseau",
+            #         showlegend=False,
+            #         line=dict(width=2),
+            #         fill="tozeroy",
+            #         opacity=0.25,
+            #         fillcolor="rgba(120,120,120,0.25)",  # 👈 gris clair transparent
+            #         # line=dict(color="rgba(120,120,120,1)"),
+            #         hovertemplate="σ réseau: %{y:.2f}<extra></extra>",
+            #     ),
+            #     row=2,
+            #     col=c,
+            # )
+            # fig.add_trace(
+            #     go.Scatter(
+            #         x=sub_s["session"],
+            #         y=sub_s["sigma"],
+            #         mode="none",
+            #         fill="tozeroy",
+            #         fillcolor="rgba(120,120,120,0.25)",
+            #         hoveron="points+fills",
+            #         hovertemplate="Évolution de la dispersion réseau : %{y:.2f}<extra></extra>",
+            #         showlegend=False,
+            #     ),
+            #     row=2,
+            #     col=c,
+            # )
+
             # # petite ligne par-dessus pour précision
             # fig.add_trace(
             #     go.Scatter(
@@ -285,6 +300,42 @@ def make_trend_means_with_sigma_subplot(
             #     row=2,
             #     col=c,
             #)
+            # --- area (sans hover) ---
+            fig.add_trace(
+                go.Scatter(
+                    x=sub_s["session"],
+                    y=sub_s["sigma"],
+                    mode="none",
+                    fill="tozeroy",
+                    fillcolor="rgba(120,120,120,0.25)",
+                    name="",  # 👈 évite "trace 3"
+                    text="Evolution de la dispersion 23→25",
+                    hoveron="fills",
+                    hovertemplate="%{text}<extra></extra>",
+                    showlegend=False,
+                ),
+                row=2,
+                col=c,
+            )
+
+            # --- ligne + points + valeurs ---
+            fig.add_trace(
+                go.Scatter(
+                    x=sub_s["session"],
+                    y=sub_s["sigma"],
+                    mode="lines+markers+text",
+                    text=[f"{v:.2f}" for v in sub_s["sigma"]],
+                    textposition="top center",
+                    line=dict(color="rgba(120,120,120,1)", width=1),
+                    marker=dict(size=7),
+                    # hovertemplate="Evolution de la dispersion 23→25<extra></extra>",
+                    hoverinfo="skip",
+                    showlegend=False,
+                ),
+                row=2,
+                col=c,
+            )
+
 
         # axes
         fig.update_xaxes(type="category", title_text="", row=2, col=c)
@@ -301,7 +352,7 @@ def make_trend_means_with_sigma_subplot(
             x=0.5,
         ),
         margin=dict(l=20, r=20, t=0, b=0),
-        height=480,
+        height=450,
     )
 
     return fig
@@ -385,6 +436,281 @@ def get_rank_row_over_total(
 # =========================================================
 #UI CARDS (Streamlit + Altair)
 # =========================================================
+
+# -------------------------
+# STD helper (dataset déjà agrégé, 1 ligne / session après filtrage)
+# -------------------------
+def std_df_by_sessions(
+    df: pd.DataFrame,
+    sessions: list[int],
+    std_col: str = "ecart_type",
+    fallback_col: str | None = "ecart_type_imputed",
+) -> pd.DataFrame:
+    """
+    Retourne DF: session(str), std(float)
+    Fallback: si std NaN ou 0 => fallback_col (si dispo).
+    """
+    tmp = df.copy()
+
+    cols = ["session", std_col]
+    if fallback_col and fallback_col in tmp.columns:
+        cols.append(fallback_col)
+    else:
+        fallback_col = None
+
+    tmp = tmp[cols].drop_duplicates(subset=["session"])
+
+    if fallback_col:
+        std = tmp[std_col].copy()
+        fb = tmp[fallback_col]
+        std = std.where(~std.isna() & (std != 0), fb)
+        tmp["std"] = std
+    else:
+        tmp["std"] = tmp[std_col]
+
+    out = tmp[tmp["session"].isin(sessions)][["session", "std"]].copy()
+    out = out.dropna(subset=["std"])
+    out["session"] = out["session"].astype(int).astype(str)
+    return out.sort_values("session")
+
+
+def _center_std(std_df: pd.DataFrame | None) -> pd.DataFrame | None:
+    """
+    std_df: ["session"(str), "std"(float)]
+    => ajoute std_centered = std - mean(std), zero=0
+    """
+    if std_df is None or std_df.empty:
+        return std_df
+    tmp = std_df.copy()
+    mu = float(tmp["std"].mean())
+    tmp["std_centered"] = tmp["std"] - mu
+    tmp["zero"] = 0.0
+    return tmp
+
+
+# -------------------------
+# CARD
+# -------------------------
+# def render_card(
+#     title: str,
+#     s: pd.Series,
+#     rank_df: pd.DataFrame,
+#     sessions: list[int],
+#     year_current: int,
+#     year_prev: int,
+#     y_domain=(9, 18),
+#     std_df: pd.DataFrame | None = None,
+# ):
+#     """Carte KPI + mini courbe moyenne + mini courbe écart-type centré + mini tableau rang/total."""
+#     if s.isna().all():
+#         return
+
+#     v_cur = s.get(year_current, np.nan)
+#     v_prev = s.get(year_prev, np.nan)
+
+#     value_str = "—" if pd.isna(v_cur) else f"{float(v_cur):.2f}"
+#     delta_str = "—" if (pd.isna(v_cur) or pd.isna(v_prev)) else f"{float(v_cur - v_prev):+.2f}"
+
+#     with st.container(border=True):
+#         st.metric(title, value=value_str, delta=delta_str)
+
+#         # --------
+#         # Chart 1: MOYENNE
+#         # --------
+#         mean_df = pd.DataFrame(
+#             {"session": [str(y) for y in sessions], "mean": [s.get(y, np.nan) for y in sessions]}
+#         ).dropna(subset=["mean"])
+
+#         if not mean_df.empty:
+#             chart_mean = (
+#                 alt.Chart(mean_df)
+#                 .mark_line(point=True)
+#                 .encode(
+#                     x=alt.X("session:N", title=None, axis=alt.Axis(labelAngle=-45)),
+#                     y=alt.Y("mean:Q", title=None, scale=alt.Scale(domain=list(y_domain))),
+#                     tooltip=[
+#                         alt.Tooltip("session:N", title="Session"),
+#                         alt.Tooltip("mean:Q", title="Moyenne", format=".2f"),
+#                     ],
+#                 )
+#                 .properties(
+#                     height=95,
+#                     title=alt.TitleParams(
+#                         text=f"Moyenne {sessions[0]}→{sessions[-1]}",
+#                         anchor="start",
+#                         fontSize=11,
+#                         fontWeight="normal",
+#                         dy=2,
+#                     ),
+#                 )
+#             )
+#             st.altair_chart(chart_mean, width="stretch")
+
+#         # --------
+#         # Chart 2: ÉCART-TYPE centré (σ - moy(σ)) + aire +/- + ligne 0
+#         # --------
+#         stdc = _center_std(std_df)
+
+#         if stdc is not None and not stdc.empty:
+#             m = float(np.nanmax(np.abs(stdc["std_centered"].values))) if len(stdc) else 0.0
+#             pad = 0.15 * m
+#             dom = [-(m + pad), (m + pad)] if m > 0 else [-1, 1]
+
+#             base = alt.Chart(stdc)
+
+#             area = base.mark_area(opacity=0.25).encode(
+#                 x=alt.X("session:N", title=None, axis=alt.Axis(labelAngle=-45)),
+#                 y=alt.Y(
+#                     "std_centered:Q",
+#                     title=None,
+#                     scale=alt.Scale(domain=dom),
+#                     axis=alt.Axis(ticks=False, labels=False, grid=True, domain=False),
+#                 ),
+#                 y2=alt.Y2("zero:Q"),
+#                 tooltip=[
+#                     alt.Tooltip("session:N", title="Session"),
+#                     alt.Tooltip("std:Q", title="σ", format=".2f"),
+#                     alt.Tooltip("std_centered:Q", title="Δσ vs moy", format="+.2f"),
+#                 ],
+#             )
+
+#             line = base.mark_line(point=True).encode(
+#                 x=alt.X("session:N", title=None, axis=alt.Axis(labelAngle=-45)),
+#                 y="std_centered:Q",
+#             )
+
+#             zero_rule = alt.Chart(pd.DataFrame({"y": [0]})).mark_rule(opacity=0.5).encode(y="y:Q")
+
+#             chart_std = (
+#                 (area + line + zero_rule)
+#                 .properties(
+#                     height=80,
+#                     title=alt.TitleParams(
+#                         text=f"Écart-type {sessions[0]}→{sessions[-1]} (centré)",
+#                         anchor="start",
+#                         fontSize=11,
+#                         fontWeight="normal",
+#                         dy=2,
+#                     ),
+#                 )
+#             )
+#             st.altair_chart(chart_std, width="stretch")
+
+#         st.caption("Rang")
+#         st.dataframe(rank_df, hide_index=True, width="stretch", height=70)
+
+# def render_card(
+#     title: str,
+#     s: pd.Series,
+#     rank_df: pd.DataFrame,
+#     sessions: list[int],
+#     year_current: int,
+#     year_prev: int,
+#     y_domain=(9, 18),          # gardé mais plus utilisé par défaut (on auto-scale)
+#     std_df: pd.DataFrame | None = None,   # NEW
+# ):
+#     """Carte KPI + mini courbe moyenne + mini courbe écart-type centré + mini tableau rang/total."""
+#     if s.isna().all():
+#         return
+
+#     v_cur = s.get(year_current, np.nan)
+#     v_prev = s.get(year_prev, np.nan)
+
+#     value_str = "—" if pd.isna(v_cur) else f"{float(v_cur):.2f}"
+#     delta_str = "—" if (pd.isna(v_cur) or pd.isna(v_prev)) else f"{float(v_cur - v_prev):+.2f}"
+
+#     with st.container(border=True):
+#         st.metric(title, value=value_str, delta=delta_str)
+
+#         # =========================
+#         # 1) MINI CHART MOYENNE (axe Y minimal, domaine auto)
+#         # =========================
+#         mean_df = pd.DataFrame(
+#             {"session": [str(y) for y in sessions], "mean": [s.get(y, np.nan) for y in sessions]}
+#         ).dropna(subset=["mean"])
+
+#         if not mean_df.empty:
+#             y_min = float(mean_df["mean"].min())
+#             y_max = float(mean_df["mean"].max())
+#             span = (y_max - y_min) if y_max > y_min else 1.0
+#             pad = max(0.25, 0.15 * span)
+#             dom_mean = [y_min - pad, y_max + pad]
+#             # dom_mean = [10, 20]
+
+#             chart_mean = (
+#                 alt.Chart(mean_df)
+#                 .mark_line(point=True)
+#                 .encode(
+#                     x=alt.X("session:N", title=None, axis=alt.Axis(labelAngle=-45)),
+#                     y=alt.Y(
+#                         "mean:Q",
+#                         title=None,
+#                         scale=alt.Scale(domain=dom_mean),
+#                         # axis=None,  # ✅ EXACTEMENT “minimal” : pas d’axe Y
+#                     ),
+#                     tooltip=[
+#                         alt.Tooltip("session:N", title="Session"),
+#                         alt.Tooltip("mean:Q", title="Moyenne", format=".2f"),
+#                     ],
+#                 )
+#                 .properties(height=110, title=f"Moyenne {sessions[0]}→{sessions[-1]}")
+#             )
+#             st.altair_chart(chart_mean, width="stretch")
+
+#         # =========================
+#         # 2) MINI CHART ÉCART-TYPE CENTRÉ (axe Y minimal aussi)
+#         # std_df doit contenir: ["session","std"] où std = ecart_type (éventuellement imputé)
+#         # =========================
+#         if std_df is not None and not std_df.empty:
+#             tmp = std_df.copy()
+#             tmp = tmp.dropna(subset=["std"]).copy()
+#             tmp["session"] = tmp["session"].astype(int).astype(str)
+#             tmp = tmp[tmp["session"].isin([str(y) for y in sessions])].sort_values("session")
+
+#             if not tmp.empty:
+#                 mu = float(tmp["std"].mean())
+#                 tmp["std_centered"] = tmp["std"] - mu
+#                 tmp["zero"] = 0.0
+
+#                 m = float(np.nanmax(np.abs(tmp["std_centered"].values))) if len(tmp) else 0.0
+#                 m = max(m, 0.25)      # ✅ évite une courbe “collée” à 0 si variations minuscules
+#                 pad = 0.15 * m
+#                 dom_std = [-(m + pad), (m + pad)]
+
+#                 base = alt.Chart(tmp)
+
+#                 area = base.mark_area(opacity=0.25).encode(
+#                     x=alt.X("session:N", title=None, axis=alt.Axis(labelAngle=-45)),
+#                     y=alt.Y(
+#                         "std_centered:Q",
+#                         title=None,
+#                         scale=alt.Scale(domain=dom_std),
+#                         axis=None,  # ✅ pas d’axe Y (même look)
+#                     ),
+#                     y2=alt.Y2("zero:Q"),
+#                     tooltip=[
+#                         alt.Tooltip("session:N", title="Session"),
+#                         alt.Tooltip("std:Q", title="σ", format=".2f"),
+#                         alt.Tooltip("std_centered:Q", title="Δσ vs moy", format="+.2f"),
+#                     ],
+#                 )
+
+#                 line = base.mark_line(point=True).encode(
+#                     x=alt.X("session:N", title=None, axis=alt.Axis(labelAngle=-45)),
+#                     y="std_centered:Q",
+#                 )
+
+#                 zero_rule = alt.Chart(pd.DataFrame({"y": [0]})).mark_rule(opacity=0.5).encode(y="y:Q")
+
+#                 chart_std = (area + line + zero_rule).properties(
+#                     height=90,
+#                     title=f"Ecart-type {sessions[0]}→{sessions[-1]} (centré)",
+#                 )
+#                 st.altair_chart(chart_std, width="stretch")
+
+#         st.caption("Rang")
+#         st.dataframe(rank_df, hide_index=True, width="stretch", height=70)
+
 def render_card(
     title: str,
     s: pd.Series,
@@ -393,8 +719,10 @@ def render_card(
     year_current: int,
     year_prev: int,
     y_domain=(9, 18),
+    std_df: pd.DataFrame | None = None,   # NEW: DF avec colonnes ["session","std"]
+    std_domain=(2, 6),                    # optionnel
 ):
-    """Carte KPI + mini courbe + mini tableau rang/total."""
+    """Carte KPI + mini courbe moyenne + mini courbe écart-type + mini tableau rang/total."""
     if s.isna().all():
         return
 
@@ -407,6 +735,9 @@ def render_card(
     with st.container(border=True):
         st.metric(title, value=value_str, delta=delta_str)
 
+        # -------------------------
+        # 1) Mini courbe MOYENNE (identique à ton code)
+        # -------------------------
         chart_df = pd.DataFrame(
             {"session": [str(y) for y in sessions], "mean": [s.get(y, np.nan) for y in sessions]}
         ).dropna(subset=["mean"])
@@ -421,20 +752,50 @@ def render_card(
                 )
                 .properties(height=120)
             )
-            st.altair_chart(chart, width='stretch')
+            st.caption("Moyenne")
+            st.altair_chart(chart, width="stretch")
+
+        # -------------------------
+        # 2) Mini courbe ECART-TYPE (simple, même style, sans axe Y)
+        # std_df doit être: session(str/int), std(float)
+        # -------------------------
+        if std_df is not None and not std_df.empty:
+            tmp = std_df.copy()
+            tmp = tmp.dropna(subset=["std"]).copy()
+            tmp["session"] = tmp["session"].astype(int).astype(str)
+            tmp = tmp[tmp["session"].isin([str(y) for y in sessions])].sort_values("session")
+
+            if not tmp.empty:
+                chart_std = (
+                    alt.Chart(tmp)
+                    .mark_line(point=True)
+                    .encode(
+                        x=alt.X("session:N", title=None, axis=alt.Axis(labelAngle=-45)),
+                        y=alt.Y("std:Q", title=None, scale=alt.Scale(domain=list(std_domain))),
+                        tooltip=[
+                            alt.Tooltip("session:N", title="Session"),
+                            alt.Tooltip("std:Q", title="Écart-type", format=".2f"),
+                        ],
+                    )
+                    .properties(height=120)
+                )
+                st.caption("Ecart-type")
+                st.altair_chart(chart_std, width="stretch")
 
         st.caption("Rang")
-        st.dataframe(rank_df, hide_index=True, width='stretch', height=70)
+        st.dataframe(rank_df, hide_index=True, width="stretch", height=70)
 
-
+# -------------------------
+# GRID
+# -------------------------
 def render_cards_grid(
-    card_items: list[tuple[str, pd.Series, pd.DataFrame]],
+    card_items: list[tuple[str, pd.Series, pd.DataFrame, pd.DataFrame | None]],
     sessions: list[int],
     year_current: int,
     year_prev: int,
     cols: int = 3,
 ):
-    card_items = [(t, s, r) for (t, s, r) in card_items if not s.isna().all()]
+    card_items = [(t, s, r, std) for (t, s, r, std) in card_items if not s.isna().all()]
     if not card_items:
         return
 
@@ -443,7 +804,7 @@ def render_cards_grid(
         for j in range(cols):
             if i + j >= len(card_items):
                 break
-            title, s, rank_df = card_items[i + j]
+            title, s, rank_df, std_df = card_items[i + j]
             with row[j]:
                 render_card(
                     title=title,
@@ -452,6 +813,7 @@ def render_cards_grid(
                     sessions=sessions,
                     year_current=year_current,
                     year_prev=year_prev,
+                    std_df=std_df,
                 )
 
 
@@ -920,535 +1282,253 @@ def display_comparison_row(df_global, label_title, etab_name, mode_swarm_active)
 
 #######
 
-# import numpy as np
-# import pandas as pd
-# import plotly.graph_objects as go
+def _wavg(v: pd.Series, w: pd.Series) -> float:
+    v = pd.to_numeric(v, errors="coerce").to_numpy()
+    w = pd.to_numeric(w, errors="coerce").fillna(0.0).to_numpy()
+    mask = (~np.isnan(v)) & (w > 0)
+    if mask.sum() == 0:
+        return np.nan
+    return float(np.average(v[mask], weights=w[mask]))
 
-# # Colonnes candidates pour l'écart-type (adapte si ton nom exact diffère)
-# STD_COL_CANDIDATES = ["ecart_type", "ecart-type", "std", "sigma", "ecart_type_eleves", "ecart_type_resultats"]
-
-# def pick_std_col(df: pd.DataFrame) -> str | None:
-#     cols = set(df.columns)
-#     for c in STD_COL_CANDIDATES:
-#         if c in cols:
-#             return c
-#     return None
-
-
-# def agg_mean_std_by_etab_session(
-#     df_scope: pd.DataFrame,
-#     exam: str,
-#     sessions: list[int],
-#     group_col: str | None = None,      # "bloc_epreuve" ou "epreuve"
-#     group_value: str | None = None,    # valeur de bloc/épreuve sélectionnée
-# ) -> pd.DataFrame:
-#     """
-#     Sortie: 1 ligne par (session, etablissement) avec mean(moyenne) + mean(ecart_type)
-#     Si group_col/group_value fournis -> filtre sur ce groupe avant agrégation.
-#     """
-#     if df_scope.empty:
-#         return pd.DataFrame(columns=["session", "etablissement", "mean", "std"])
-
-#     std_col = pick_std_col(df_scope)
-#     if std_col is None:
-#         # On préfère être explicite : tu as dit que tu as la donnée,
-#         # donc si elle n'est pas là, on renvoie une DF vide (plutôt que du faux).
-#         return pd.DataFrame(columns=["session", "etablissement", "mean", "std"])
-
-#     d = df_scope[(df_scope["examen_u"] == exam) & (df_scope["session"].isin(sessions))].copy()
-
-#     if group_col is not None and group_value is not None:
-#         d = d[d[group_col].astype(str) == str(group_value)].copy()
-
-#     d = d.dropna(subset=["moyenne", std_col, "etablissement", "session"]).copy()
-#     if d.empty:
-#         return pd.DataFrame(columns=["session", "etablissement", "mean", "std"])
-
-#     out = (
-#         d.groupby(["session", "etablissement"], as_index=False)
-#          .agg(mean=("moyenne", "mean"), std=(std_col, "mean"))
-#     )
-#     out["session"] = out["session"].astype(int)
-#     return out
-
-
-# def add_iso_ratio_guides(fig, x_min, x_max, ratios=(6, 7, 8, 9, 10)):
-#     xs = np.linspace(x_min, x_max, 80)
-#     for r in ratios:
-#         ys = xs / float(r)
-#         fig.add_trace(
-#             go.Scatter(
-#                 x=xs,
-#                 y=ys,
-#                 mode="lines",
-#                 line=dict(width=1, color="rgba(0,0,0,0.18)", dash="dot"),
-#                 hoverinfo="skip",
-#                 showlegend=False,
-#             )
-#         )
-#         # petit label sur la droite
-#         fig.add_annotation(
-#             x=float(xs[-1]),
-#             y=float(ys[-1]),
-#             text=f"μ/σ={r}",
-#             showarrow=False,
-#             font=dict(size=10, color="rgba(0,0,0,0.45)"),
-#             xanchor="left",
-#             yanchor="middle",
-#         )
-
-
-# def make_mean_std_scatter(
-#     df_scope: pd.DataFrame,
-#     exam: str,
-#     sessions: list[int],
-#     etab_selected: str,
-#     color_map: dict[str, str],
-#     group_col: str | None = None,      # "bloc_epreuve" (BAC) / "epreuve" (DNB)
-#     group_value: str | None = None,
-#     only_one_year: int | None = None,  # si tu veux forcer une seule session
-# ):
-#     """
-#     Scatter mean (x) vs std (y).
-#     Couleur = série (exam + session) via color_map (même logique que le bar chart).
-#     Point sélection = rouge (#FF4B4B).
-#     """
-#     sess = sessions if only_one_year is None else [int(only_one_year)]
-
-#     df_plot = agg_mean_std_by_etab_session(
-#         df_scope=df_scope,
-#         exam=exam,
-#         sessions=sess,
-#         group_col=group_col,
-#         group_value=group_value,
-#     )
-#     if df_plot.empty:
-#         return None
-
-#     # Rang interne (1 = meilleur) par session sur mean
-#     df_plot["rank"] = df_plot.groupby("session")["mean"].rank(ascending=False, method="min").astype(int)
-
-#     # Série pour mapping couleur
-#     df_plot["serie"] = df_plot["session"].apply(lambda s: f"{exam} {int(s)}")
-
-#     # bornes utiles
-#     x_min = float(df_plot["mean"].min())
-#     x_max = float(df_plot["mean"].max())
-#     if x_min == x_max:
-#         x_min -= 0.5
-#         x_max += 0.5
-
-#     # ajoute les “cadrans” iso-ratio directement sur le scatter
-#     add_iso_ratio_guides(fig, x_min, x_max, ratios=(6, 7, 8, 9, 10))
-
-#     # Split sélection / autres
-#     df_sel = df_plot[df_plot["etablissement"] == etab_selected].copy()
-#     df_oth = df_plot[df_plot["etablissement"] != etab_selected].copy()
-
-#     fig = go.Figure()
-
-#     # Traces "Autres" : par session (couleurs alignées bar chart)
-#     for s in sorted(df_oth["session"].unique().tolist()):
-#         serie = f"{exam} {int(s)}"
-#         dfx = df_oth[df_oth["session"] == s]
-
-#         fig.add_trace(
-#             go.Scatter(
-#                 x=dfx["mean"],
-#                 y=dfx["std"],
-#                 mode="markers",
-#                 name=serie,
-#                 marker=dict(
-#                     size=10,
-#                     color=color_map.get(serie, "#B0B0B0"),
-#                     opacity=0.75,
-#                     line=dict(width=0),
-#                 ),
-#                 customdata=np.stack([dfx["rank"], dfx["etablissement"], dfx["session"]], axis=-1),
-#                 hovertemplate=(
-#                     "Établissement: %{customdata[1]}<br>"
-#                     "Session: %{customdata[2]}<br>"
-#                     "Moyenne: %{x:.2f}<br>"
-#                     "Écart-type: %{y:.2f}<br>"
-#                     "Rang: %{customdata[0]}<extra></extra>"
-#                 ),
-#                 showlegend=True if len(sess) > 1 else False,
-#             )
-#         )
-
-#    # Trace "Sélection" : points ronds + ligne de liaison
-#     if not df_sel.empty:
-
-#         # On trie par session pour garantir une ligne chronologique propre
-#         df_sel = df_sel.sort_values("session")
-
-#         fig.add_trace(
-#             go.Scatter(
-#                 x=df_sel["mean"],
-#                 y=df_sel["std"],
-#                 mode="lines+markers",
-#                 name="Sélection",
-#                 line=dict(
-#                     color="#111827",      # charcoal très contrasté
-#                     width=2.5,
-#                 ),
-#                 marker=dict(
-#                     size=16,
-#                     color="#111827",
-#                     symbol="circle",
-#                     line=dict(width=2, color="white"),
-#                 ),
-#                 customdata=np.stack([df_sel["rank"], df_sel["session"]], axis=-1),
-#                 hovertemplate=(
-#                     f"<b>{etab_selected}</b><br>"
-#                     "Session: %{customdata[1]}<br>"
-#                     "Moyenne: %{x:.2f}<br>"
-#                     "Écart-type: %{y:.2f}<br>"
-#                     "Rang: %{customdata[0]}<extra></extra>"
-#                 ),
-#                 showlegend=True,
-#             )
-#         )
-
-#     title = "Moyenne vs Écart-type"
-#     if group_col and group_value:
-#         title += f" — {group_value}"
-
-#     fig.update_layout(
-#         title=title,
-#         height=520,
-#         margin=dict(l=10, r=10, t=60, b=10),
-#         plot_bgcolor="white",
-#         legend=dict(
-#             orientation="h",
-#             yanchor="top",
-#             y=1.12,
-#             xanchor="center",
-#             x=0.5,
-#         ),
-#     )
-#     fig.update_xaxes(title="Moyenne", showgrid=True, gridcolor="rgba(0,0,0,0.06)")
-#     fig.update_yaxes(title="Écart-type", showgrid=True, gridcolor="rgba(0,0,0,0.06)")
-
-#     return fig
-
-
-import numpy as np
-import pandas as pd
-import plotly.graph_objects as go
-
-# Colonnes candidates pour l'écart-type (adapte si ton nom exact diffère)
-STD_COL_CANDIDATES = [
-    "ecart_type", "ecart-type", "std", "sigma",
-    "ecart_type_eleves", "ecart_type_resultats"
-]
-
-def pick_std_col(df: pd.DataFrame) -> str | None:
-    cols = set(df.columns)
-    for c in STD_COL_CANDIDATES:
-        if c in cols:
-            return c
-    return None
-
-
-def agg_mean_std_by_etab_session(
-    df_scope: pd.DataFrame,
-    exam: str,
-    sessions: list[int],
-    group_col: str | None = None,      # "bloc_epreuve" ou "epreuve"
-    group_value: str | None = None,    # valeur de bloc/épreuve sélectionnée
-) -> pd.DataFrame:
+def aggregate_etab_mean_sigma(df_year: pd.DataFrame) -> pd.DataFrame:
     """
-    Sortie: 1 ligne par (session, etablissement) avec mean(moyenne) + mean(ecart_type)
-    Si group_col/group_value fournis -> filtre sur ce groupe avant agrégation.
+    Input: lignes par épreuve (ou déjà agrégées)
+    Output: 1 ligne par établissement avec:
+      - mean (μ) : moyenne pondérée par nb_presents
+      - sigma (σ) : écart-type pondéré par nb_presents
     """
-    if df_scope.empty:
-        return pd.DataFrame(columns=["session", "etablissement", "mean", "std"])
+    d = df_year.copy()
+    # sécurité colonnes
+    for c in ["moyenne", "ecart_type", "nb_presents"]:
+        if c not in d.columns:
+            raise KeyError(f"Colonne manquante: {c}")
 
-    std_col = pick_std_col(df_scope)
-    if std_col is None:
-        return pd.DataFrame(columns=["session", "etablissement", "mean", "std"])
-
-    d = df_scope[(df_scope["examen_u"] == exam) & (df_scope["session"].isin(sessions))].copy()
-
-    if group_col is not None and group_value is not None:
-        d = d[d[group_col].astype(str) == str(group_value)].copy()
-
-    d = d.dropna(subset=["moyenne", std_col, "etablissement", "session"]).copy()
-    if d.empty:
-        return pd.DataFrame(columns=["session", "etablissement", "mean", "std"])
+    d["moyenne"] = pd.to_numeric(d["moyenne"], errors="coerce")
+    d["ecart_type"] = pd.to_numeric(d["ecart_type"], errors="coerce")
+    d["nb_presents"] = pd.to_numeric(d["nb_presents"], errors="coerce").fillna(0.0)
 
     out = (
-        d.groupby(["session", "etablissement"], as_index=False)
-         .agg(mean=("moyenne", "mean"), std=(std_col, "mean"))
+        d.groupby("etablissement", as_index=False)
+         .apply(lambda x: pd.Series({
+             "mean": _wavg(x["moyenne"], x["nb_presents"]),
+             "sigma": _wavg(x["ecart_type"], x["nb_presents"]),
+             "n": float(x["nb_presents"].sum()),
+         }))
+         .reset_index()
     )
-    out["session"] = out["session"].astype(int)
+    # groupby+apply crée parfois une colonne index inutile
+    if "level_0" in out.columns:
+        out = out.drop(columns=["level_0"])
+    out = out.dropna(subset=["mean", "sigma"])
     return out
 
+def compute_top_percent(df_etab: pd.DataFrame, etab_name: str) -> tuple[int | None, int | None, float | None]:
+    """
+    Top% sur la MOYENNE (plus haut = meilleur).
+    Retourne (rang, total, top_pct).
+      - rang: 1 = meilleur
+      - top_pct: ex 0.28 => Top 28%
+    """
+    if df_etab.empty or etab_name not in df_etab["etablissement"].values:
+        return None, None, None
 
-def add_iso_ratio_guides(fig: go.Figure, x_min: float, x_max: float, ratios=(6, 7, 8, 9, 10)):
-    """Ajoute des lignes iso-ratio μ/σ (cadrans visuels) sur le scatter."""
-    xs = np.linspace(x_min, x_max, 80)
-    for r in ratios:
-        ys = xs / float(r)
-        fig.add_trace(
-            go.Scatter(
-                x=xs,
-                y=ys,
-                mode="lines",
-                line=dict(width=1, color="rgba(0,0,0,0.18)", dash="dot"),
-                hoverinfo="skip",
-                showlegend=False,
-            )
-        )
-        fig.add_annotation(
-            x=float(xs[-1]),
-            y=float(ys[-1]),
-            text=f"μ/σ={r}",
-            showarrow=False,
-            font=dict(size=10, color="rgba(0,0,0,0.45)"),
-            xanchor="left",
-            yanchor="middle",
-        )
-
-import numpy as np
-import pandas as pd
-import plotly.graph_objects as go
+    tmp = df_etab.sort_values("mean", ascending=False).reset_index(drop=True)
+    tmp["rang"] = np.arange(1, len(tmp) + 1)
+    total = len(tmp)
+    rang = int(tmp.loc[tmp["etablissement"] == etab_name, "rang"].iloc[0])
+    top_pct = rang / total  # 0.28 => top 28%
+    return rang, total, top_pct
 
 
-def make_mean_std_scatter(
-    df_scope: pd.DataFrame,
-    exam: str,
-    sessions: list[int],
-    etab_selected: str,
-    color_map: dict[str, str],
-    group_col: str | None = None,
-    group_value: str | None = None,
-    only_one_year: int | None = None,
-    show_network_trend: bool = True,   # trajectoire barycentre réseau (privacy-safe)
-    show_change_badge: bool = True,    # badge Δσ 1ère->dernière vs réseau (privacy-safe)
-    show_quadrants: bool = True,       # zones pédagogiques
+def quadrant_label(mean: float, sigma: float, mean_ref: float, sigma_ref: float) -> tuple[str, str]:
+    """
+    Retourne (label, couleur) selon la position par rapport aux références.
+    mean_ref / sigma_ref = lignes de séparation (cadran).
+    """
+    up_mean = mean >= mean_ref
+    up_sigma = sigma >= sigma_ref
+
+    # Convention: Y=mean, X=sigma
+    if up_mean and (not up_sigma):
+        return ("Moyenne ↑ / Dispersion ↓", "rgba(46, 204, 113, 0.18)")  # vert (souhaitable)
+    if up_mean and up_sigma:
+        return ("Moyenne ↑ / Dispersion ↑", "rgba(241, 196, 15, 0.18)")  # jaune
+    if (not up_mean) and (not up_sigma):
+        return ("Moyenne ↓ / Dispersion ↓", "rgba(52, 152, 219, 0.18)")  # bleu
+    return ("Moyenne ↓ / Dispersion ↑", "rgba(231, 76, 60, 0.18)")       # rouge
+
+def get_quadrant_scatter_fig(
+    df_etab: pd.DataFrame,
+    title: str,
+    etab: str,
+    x_label: str = "Écart-type (σ)",
+    y_label: str = "Moyenne (μ)",
+    split: str = "median",          # "median" recommandé
+    show_other_names_in_hover: bool = False,
 ):
     """
-    Scatter Moyenne (x) vs Écart-type (y).
-    - Réseau: points colorés par session, hover désactivé (confidentialité)
-    - Sélection: points + ligne, hover complet + badge TOP%
-    - Réseau (moy.): trajectoire du barycentre (optionnel)
-    - Quadrants pédagogiques (optionnel): lignes mean/std réseau + zone "🟢 Bas-Droite"
-    - Badge Δσ (optionnel): évolution dispersion sélection vs distribution réseau (privacy-safe)
+    df_etab attendu: colonnes ['etablissement', 'mean', 'sigma'] (1 ligne / etab)
+    Rendu:
+      - Quadrants colorés (4 zones)
+      - Nuage gris des autres
+      - Point rouge + label (quadrant)
+      - Lignes de cadran (verticale + horizontale)
     """
-    # --- agrégation attendue en amont: 1 ligne par (session, etablissement) ---
-    # df_scope doit contenir: examen_u, session, etablissement, moyenne, + colonne std candidate
-    # On suppose que tu as déjà agg_mean_std_by_etab_session dans ton fichier utils.
-
-    sess = sessions if only_one_year is None else [int(only_one_year)]
-
-    df_plot = agg_mean_std_by_etab_session(
-        df_scope=df_scope,
-        exam=exam,
-        sessions=sess,
-        group_col=group_col,
-        group_value=group_value,
-    )
-    if df_plot.empty:
+    if df_etab is None or df_etab.empty:
         return None
 
-    df_plot["rank"] = df_plot.groupby("session")["mean"].rank(ascending=False, method="min").astype(int)
-    df_sel = df_plot[df_plot["etablissement"] == etab_selected].copy()
-    df_oth = df_plot[df_plot["etablissement"] != etab_selected].copy()
+    d = df_etab.copy().dropna(subset=["mean", "sigma"])
+    if d.empty:
+        return None
+
+    # split (référence cadran) sur l'année
+    if split == "mean":
+        sigma_ref = float(d["sigma"].mean())
+        mean_ref = float(d["mean"].mean())
+    else:
+        sigma_ref = float(d["sigma"].median())
+        mean_ref = float(d["mean"].median())
+
+    # bornes (padding)
+    x_min, x_max = float(d["sigma"].min()), float(d["sigma"].max())
+    y_min, y_max = float(d["mean"].min()), float(d["mean"].max())
+    pad_x = 0.12 * (x_max - x_min) if x_max > x_min else 0.5
+    pad_y = 0.18 * (y_max - y_min) if y_max > y_min else 0.5
+    x0, x1 = x_min - pad_x, x_max + pad_x
+    y0, y1 = y_min - pad_y, y_max + pad_y
+
+    # séparer sélection / autres
+    me = d[d["etablissement"] == etab]
+    other = d[d["etablissement"] != etab]
 
     fig = go.Figure()
 
-    # ---- Quadrants pédagogiques (basé sur "centre" réseau global) ----
-    if show_quadrants:
-        mean_net = float(df_plot["mean"].mean())
-        std_net = float(df_plot["std"].mean())
+    # quadrants (fond léger)
+    quad_colors = {
+        "HL": "rgba(46, 204, 113, 0.10)",  # mean↑ sigma↓
+        "HR": "rgba(241, 196, 15, 0.10)",  # mean↑ sigma↑
+        "BL": "rgba(52, 152, 219, 0.10)",  # mean↓ sigma↓
+        "BR": "rgba(231, 76, 60, 0.10)",   # mean↓ sigma↑
+    }
+    # BL
+    fig.add_shape(type="rect", x0=x0, x1=sigma_ref, y0=y0, y1=mean_ref,
+                  fillcolor=quad_colors["BL"], line=dict(width=0))
+    # BR
+    fig.add_shape(type="rect", x0=sigma_ref, x1=x1, y0=y0, y1=mean_ref,
+                  fillcolor=quad_colors["BR"], line=dict(width=0))
+    # HL
+    fig.add_shape(type="rect", x0=x0, x1=sigma_ref, y0=mean_ref, y1=y1,
+                  fillcolor=quad_colors["HL"], line=dict(width=0))
+    # HR
+    fig.add_shape(type="rect", x0=sigma_ref, x1=x1, y0=mean_ref, y1=y1,
+                  fillcolor=quad_colors["HR"], line=dict(width=0))
 
-        # Zone "🟢 Performance homogène" = Bas-Droite
+    # lignes cadran
+    fig.add_shape(type="line", x0=sigma_ref, x1=sigma_ref, y0=y0, y1=y1,
+                  line=dict(width=1, dash="dot", color="rgba(120,120,120,0.55)"))
+    fig.add_shape(type="line", x0=x0, x1=x1, y0=mean_ref, y1=mean_ref,
+                  line=dict(width=1, dash="dot", color="rgba(120,120,120,0.55)"))
+
+    # autres établissements (gris)
+    if show_other_names_in_hover:
+        hover_other = "<b>%{customdata}</b><br>μ=%{y:.2f}<br>σ=%{x:.2f}<extra></extra>"
+        custom = other["etablissement"]
+    else:
+        hover_other = "μ=%{y:.2f}<br>σ=%{x:.2f}<extra></extra>"
+        custom = None
+
+    fig.add_trace(
+        go.Scatter(
+            x=other["sigma"],
+            y=other["mean"],
+            mode="markers",
+            marker=dict(size=12, color="rgba(150,150,150,0.60)"),
+            showlegend=False,
+            hovertemplate=hover_other,
+            customdata=custom,
+        )
+    )
+
+    # établissement sélectionné : point rouge + ligne verticale rouge + badge quadrant
+    if not me.empty:
+        x_me = float(me["sigma"].iloc[0])
+        y_me = float(me["mean"].iloc[0])
+
+        # ligne verticale rouge sur sigma de l'établissement (comme ton visuel)
         fig.add_shape(
-            type="rect",
-            x0=mean_net, x1=float(df_plot["mean"].max()) + 0.001,
-            y0=float(df_plot["std"].min()) - 0.001, y1=std_net,
-            fillcolor="rgba(0,200,100,0.06)",
-            line=dict(width=0),
-            layer="below",
+            type="line",
+            x0=x_me, x1=x_me, y0=y0, y1=y1,
+            line=dict(width=3, dash="dash", color="#FF4B4B"),
+            opacity=0.85,
         )
 
-        # Lignes de séparation
-        fig.add_vline(x=mean_net, line=dict(color="rgba(0,0,0,0.18)", dash="dash"))
-        fig.add_hline(y=std_net, line=dict(color="rgba(0,0,0,0.18)", dash="dash"))
-
-        # Labels simples
-        fig.add_annotation(
-            x=0.01, y=0.02, xref="paper", yref="paper",
-            text="🟢 Moyenne ↑ & Dispersion ↓ (zone idéale)",
-            showarrow=False,
-            font=dict(size=11, color="rgba(0,0,0,0.65)"),
-            align="left",
-            bgcolor="rgba(255,255,255,0.75)",
-            bordercolor="rgba(0,0,0,0.06)",
-            borderwidth=1,
-            borderpad=6,
-        )
-
-    # ---- Réseau: points par session (hover OFF) ----
-    for s in sorted(df_oth["session"].unique().tolist()):
-        serie = f"{exam} {int(s)}"
-        dfx = df_oth[df_oth["session"] == s]
-
+        # point rouge
         fig.add_trace(
             go.Scatter(
-                x=dfx["mean"],
-                y=dfx["std"],
+                x=[x_me],
+                y=[y_me],
                 mode="markers",
-                name=serie,
-                marker=dict(
-                    size=10,
-                    color=color_map.get(serie, "#B0B0B0"),
-                    opacity=0.55,
-                    line=dict(width=0),
-                ),
-                hoverinfo="skip",  # CONFIDENTIALITÉ
-                showlegend=True if len(sess) > 1 else False,
+                marker=dict(size=18, color="#FF4B4B", line=dict(width=1, color="white")),
+                showlegend=False,
+                hovertemplate=f"<b>{etab}</b><br>μ=%{{y:.2f}}<br>σ=%{{x:.2f}}<extra></extra>",
             )
         )
 
-    # ---- Trajectoire barycentre réseau (privacy-safe) ----
-    if show_network_trend:
-        net = (
-            df_plot.groupby("session", as_index=False)
-                   .agg(mean_net=("mean", "mean"), std_net=("std", "mean"))
-                   .sort_values("session")
-        )
-        fig.add_trace(
-            go.Scatter(
-                x=net["mean_net"],
-                y=net["std_net"],
-                mode="lines+markers",
-                name="Réseau (moy.)",
-                line=dict(width=2, color="rgba(0,0,0,0.35)"),
-                marker=dict(size=10, color="rgba(0,0,0,0.35)", line=dict(width=1, color="white")),
-                hoverinfo="skip",
-                showlegend=True,
-            )
-        )
+        # badge = nom + quadrant
+        q_label, _ = quadrant_label(y_me, x_me, mean_ref, sigma_ref)
+        badge = f"<b>{etab}</b><br>{q_label}"
 
-    # ---- Sélection: points + ligne + hover complet ----
-    if not df_sel.empty:
-        df_sel = df_sel.sort_values("session")
-
-        n_by_sess = df_plot.groupby("session")["etablissement"].nunique()
-        df_sel["top_pct"] = df_sel.apply(
-            lambda r: (int(r["rank"]) / int(n_by_sess.get(r["session"], np.nan))) * 100, axis=1
-        )
-
-        fig.add_trace(
-            go.Scatter(
-                x=df_sel["mean"],
-                y=df_sel["std"],
-                mode="lines+markers",
-                name="Sélection",
-                line=dict(color="#111827", width=2.5),
-                marker=dict(
-                    size=16,
-                    color="#111827",
-                    symbol="circle",
-                    line=dict(width=2, color="white"),
-                ),
-                customdata=np.stack([df_sel["rank"], df_sel["session"], df_sel["top_pct"]], axis=-1),
-                hovertemplate=(
-                    f"<b>{etab_selected}</b><br>"
-                    "Session: %{customdata[1]}<br>"
-                    "Moyenne: %{x:.2f}<br>"
-                    "Écart-type: %{y:.2f}<br>"
-                    "Rang: %{customdata[0]}<br>"
-                    "Top: %{customdata[2]:.0f}%<extra></extra>"
-                ),
-                showlegend=True,
-            )
-        )
-
-        # Badge TOP% sur le dernier point
-        last = df_sel.iloc[-1]
         fig.add_annotation(
-            x=float(last["mean"]),
-            y=float(last["std"]),
-            text=f"<b>{etab_selected}</b><br>TOP {float(last['top_pct']):.0f}%",
+            x=x_me, y=y_me,
+            xref="x", yref="y",
+            text=badge,
             showarrow=True,
-            arrowhead=0,
-            ax=0, ay=-45,
-            font=dict(color="white", size=11),
+            arrowhead=2,
+            arrowsize=1,
+            arrowwidth=2,
+            arrowcolor="#FF4B4B",
+            ax=0, ay=-75,
+            font=dict(color="white", size=12),
             bgcolor="#FF4B4B",
-            borderpad=6,
+            borderpad=8,
         )
-
-        # ---- Badge "Δσ vs réseau" : réponse directe à “ma dispersion évolue plus/moins que les autres” ----
-        if show_change_badge and len(df_sel) >= 2:
-            year_a = int(df_sel["session"].iloc[0])
-            year_b = int(df_sel["session"].iloc[-1])
-
-            piv = df_plot[df_plot["session"].isin([year_a, year_b])].pivot_table(
-                index="etablissement", columns="session", values=["mean", "std"], aggfunc="first"
-            )
-
-            if (year_a in piv["std"].columns) and (year_b in piv["std"].columns) and (etab_selected in piv.index):
-                delta_std = (piv["std"][year_b] - piv["std"][year_a]).dropna()
-                delta_mean = (piv["mean"][year_b] - piv["mean"][year_a]).dropna()
-
-                common = delta_std.index.intersection(delta_mean.index)
-                delta_std = delta_std.loc[common]
-                delta_mean = delta_mean.loc[common]
-
-                if not delta_std.empty:
-                    sel_dstd = float(delta_std.loc[etab_selected])
-                    sel_dmean = float(delta_mean.loc[etab_selected])
-                    n = int(delta_std.shape[0])
-
-                    # percentile: % d'étabs dont Δσ est inférieur au tien
-                    pct_higher_std = 100.0 * float((delta_std < sel_dstd).sum()) / n
-
-                    # Message simple
-                    if sel_dstd >= 0:
-                        msg_std = f"Δσ {year_a}→{year_b}: +{sel_dstd:.2f}<br>+ que {pct_higher_std:.0f}% du réseau"
-                    else:
-                        msg_std = f"Δσ {year_a}→{year_b}: {sel_dstd:.2f}<br>↓ vs {pct_higher_std:.0f}% du réseau"
-
-                    # Bonus lecture moyenne
-                    if sel_dmean >= 0:
-                        msg_mu = f"Δμ {year_a}→{year_b}: +{sel_dmean:.2f}"
-                    else:
-                        msg_mu = f"Δμ {year_a}→{year_b}: {sel_dmean:.2f}"
-
-                    fig.add_annotation(
-                        x=0.01, y=0.98, xref="paper", yref="paper",
-                        text=f"<b>Lecture rapide</b><br>{msg_mu}<br>{msg_std}",
-                        showarrow=False,
-                        align="left",
-                        font=dict(size=11, color="rgba(0,0,0,0.85)"),
-                        bgcolor="rgba(255,255,255,0.88)",
-                        bordercolor="rgba(0,0,0,0.08)",
-                        borderwidth=1,
-                        borderpad=6,
-                    )
-
-    title = "Moyenne vs Écart-type"
-    if group_col and group_value:
-        title += f" — {group_value}"
 
     fig.update_layout(
-        title=title,
-        height=520,
-        margin=dict(l=10, r=10, t=60, b=10),
-        plot_bgcolor="white",
-        legend=dict(
-            orientation="h",
-            yanchor="top",
-            y=1.12,
-            xanchor="center",
-            x=0.5,
-        ),
+        title=dict(text=title, x=0.02, xanchor="left"),
+        template="plotly_white",
+        height=420,
+        margin=dict(l=20, r=20, t=60, b=40),
     )
-    fig.update_xaxes(title="Moyenne", showgrid=True, gridcolor="rgba(0,0,0,0.06)")
-    fig.update_yaxes(title="Écart-type", showgrid=True, gridcolor="rgba(0,0,0,0.06)")
+    fig.update_xaxes(range=[x0, x1], title_text=x_label, zeroline=False)
+    fig.update_yaxes(range=[y0, y1], title_text=y_label, zeroline=False)
 
     return fig
+
+def display_mean_sigma_row(df_global, label_title, etab_name):
+    """
+    3 colonnes (3 dernières années) : Mean (Y) vs σ (X) avec quadrants + highlight.
+    df_global = df filtré sur examen (BAC ou DNB).
+    """
+    years_available = sorted(df_global["session"].dropna().astype(int).unique().tolist())
+    target_years = years_available[-3:]
+    cols = st.columns(3)
+
+    for i, year in enumerate(target_years):
+        with cols[i]:
+            df_year = df_global[df_global["session"].astype(int) == year].copy()
+
+            # agrégation 1 ligne / etab => mean + sigma
+            df_etab = aggregate_etab_mean_sigma(df_year)
+
+            fig = get_quadrant_scatter_fig(
+                df_etab=df_etab,
+                title=f"{label_title} {year}",
+                etab=etab_name,
+                x_label="Écart-type",
+                y_label=f"Moyenne {label_title}",
+                split="median",
+                show_other_names_in_hover=False,
+            )
+
+            if fig:
+                st.plotly_chart(fig, width="stretch", config=PLOTLY_CONFIG, key=f"quad_{label_title}_{year}")

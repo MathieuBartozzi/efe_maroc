@@ -184,14 +184,166 @@ fig = make_bac_dnb_bar(
 )
 st.plotly_chart(fig, width='stretch', config=PLOTLY_CONFIG)
 
+st.divider()
+
+st.subheader("Dispersion : Moyenne vs Écart-type")
+
+df_bac = df[df["examen"] == "BAC"].copy()
+df_dnb = df[df["examen"] == "DNB"].copy()
+
+tab1, tab2 = st.tabs(["BAC", "DNB"])
+
+with tab1:
+    display_mean_sigma_row(df_bac, "BAC", etab)
+
+with tab2:
+    display_mean_sigma_row(df_dnb, "DNB", etab)
+
+
+
+with st.popover("Comment lire ces graphiques ?",type="secondary",icon=":material/info:"):
+    st.markdown(
+        """
+- Chaque point représente un établissement.
+- Axe horizontal → plus on va à droite, plus la dispersion des résultats est forte.
+- Axe vertical → plus on monte, plus la moyenne progresse.
+
+**Objectif de pilotage :** se situer en haut à gauche
+(moyenne élevée, dispersion maîtrisée)
+plutôt qu’en bas à droite
+(moyenne faible, dispersion forte).
+"""
+    )
 
 
 st.divider()
 
-# =========================================================
-# ECART AU RESEAU (delta)
-# =========================================================
-st.subheader("Evolution des moyennes par épreuve")
+# # =========================================================
+# # ECART AU RESEAU (delta)
+# # =========================================================
+# st.subheader("Evolution des moyennes par épreuve")
+# # =========================================================
+# # TABS
+# # =========================================================
+# tab_bac, tab_dnb, tab_spe = st.tabs(["BAC — Épreuves finales", "DNB — Épreuves finales", "BAC — Spécialités"])
+
+# # =========================================================
+# # TAB 1 — BAC Épreuves finales (cartes par bloc_epreuve)
+# # =========================================================
+# with tab_bac:
+#     bac_etab = df_e[df_e["examen_u"] == "BAC"].copy()
+#     bac_net = df_all[df_all["examen_u"] == "BAC"].copy()
+
+#     rank_pivot_bac_bloc, n_bac_bloc = build_rank_pivot_with_total(
+#         bac_net.dropna(subset=["bloc_epreuve"]).copy(),
+#         group_col="bloc_epreuve",
+#     )
+
+#     target_blocs = [
+#         ("EDS", {"EDS"}),
+#         ("EAF", {"EAF"}),
+#         ("Grand Oral", {"GO", "GRAND ORAL"}),
+#         ("Philosophie", {"PHILO", "PHILOSOPHIE"}),
+#     ]
+
+#     card_items = []
+#     for label, accepted in target_blocs:
+#         m = bac_etab["bloc_u"].isin(accepted)
+#         if bac_etab[m].empty:
+#             continue
+
+#         s = series_by_sessions(bac_etab[m], sessions=SESSIONS)
+
+#         # Valeur pivot (bloc_epreuve) la plus fréquente pour ce label
+#         bloc_value = bac_etab.loc[m, "bloc_epreuve"].mode().iloc[0]
+#         rank_df = get_rank_row_over_total(
+#             rank_pivot=rank_pivot_bac_bloc,
+#             n_by_session=n_bac_bloc,
+#             etab=etab,
+#             sessions=SESSIONS,
+#             group_col="bloc_epreuve",
+#             group_value=bloc_value,
+#         )
+#         card_items.append((label, s, rank_df))
+
+#     render_cards_grid(
+#         card_items=card_items,
+#         sessions=SESSIONS,
+#         year_current=YEAR_CUR,
+#         year_prev=YEAR_PREV,
+#         cols=4,
+#     )
+
+# # =========================================================
+# # TAB 2 — DNB Épreuves finales (cartes par epreuve)
+# # =========================================================
+# with tab_dnb:
+#     dnb_etab = df_e[(df_e["examen_u"] == "DNB") & (df_e["bloc_u"] == "DNB_FINAL")].copy()
+#     dnb_net = df_all[(df_all["examen_u"] == "DNB") & (df_all["bloc_u"] == "DNB_FINAL")].copy()
+
+#     dnb_etab = dnb_etab[~dnb_etab["epreuve_u"].isin({x.upper().strip() for x in DNB_EPREUVE_EXCLUDE})].copy()
+#     dnb_net = dnb_net[~dnb_net["epreuve_u"].isin({x.upper().strip() for x in DNB_EPREUVE_EXCLUDE})].copy()
+
+#     if not dnb_etab.empty:
+#         rank_pivot_dnb, n_dnb_by_ep = build_rank_pivot_with_total(
+#             dnb_net.dropna(subset=["epreuve"]).copy(),
+#             group_col="epreuve",
+#         )
+
+#         card_items = []
+#         for epr in sorted(dnb_etab["epreuve"].dropna().unique().tolist()):
+#             s = series_by_sessions(dnb_etab[dnb_etab["epreuve"] == epr], sessions=SESSIONS)
+#             rank_df = get_rank_row_over_total(
+#                 rank_pivot=rank_pivot_dnb,
+#                 n_by_session=n_dnb_by_ep,
+#                 etab=etab,
+#                 sessions=SESSIONS,
+#                 group_col="epreuve",
+#                 group_value=epr,
+#             )
+#             card_items.append((str(epr), s, rank_df))
+
+#         render_cards_grid(
+#             card_items=card_items,
+#             sessions=SESSIONS,
+#             year_current=YEAR_CUR,
+#             year_prev=YEAR_PREV,
+#             cols=5,
+#         )
+
+# # =========================================================
+# # TAB 3 — BAC Spécialités (EDS) (cartes par epreuve)
+# # =========================================================
+# with tab_spe:
+#     spe_etab = df_e[(df_e["examen_u"] == "BAC") & (df_e["bloc_u"] == "EDS")].copy()
+#     spe_net = df_all[(df_all["examen_u"] == "BAC") & (df_all["bloc_u"] == "EDS")].copy()
+
+#     if not spe_etab.empty:
+#         rank_pivot_spe, n_spe = build_rank_pivot_with_total(
+#             spe_net.dropna(subset=["epreuve"]).copy(),
+#             group_col="epreuve",
+#         )
+
+#         card_items = []
+#         for epr in sorted(spe_etab["epreuve"].dropna().unique().tolist()):
+#             s = series_by_sessions(spe_etab[spe_etab["epreuve"] == epr], sessions=SESSIONS)
+#             rank_df = get_rank_row_over_total(
+#                 rank_pivot=rank_pivot_spe,
+#                 n_by_session=n_spe,
+#                 etab=etab,
+#                 sessions=SESSIONS,
+#                 group_col="epreuve",
+#                 group_value=epr,
+#             )
+#             card_items.append((str(epr), s, rank_df))
+
+#         render_cards_grid(
+#             card_items=card_items,
+#             sessions=SESSIONS,
+#             year_current=YEAR_CUR,
+#             year_prev=YEAR_PREV,
+#             cols=4,
+#         )
 # =========================================================
 # TABS
 # =========================================================
@@ -222,10 +374,19 @@ with tab_bac:
         if bac_etab[m].empty:
             continue
 
-        s = series_by_sessions(bac_etab[m], sessions=SESSIONS)
+        sub = bac_etab[m]
+
+        s = series_by_sessions(sub, sessions=SESSIONS)
+
+        std_df = std_df_by_sessions(
+            sub,
+            sessions=SESSIONS,
+            std_col="ecart_type",
+            fallback_col="ecart_type_imputed",
+        )
 
         # Valeur pivot (bloc_epreuve) la plus fréquente pour ce label
-        bloc_value = bac_etab.loc[m, "bloc_epreuve"].mode().iloc[0]
+        bloc_value = sub["bloc_epreuve"].mode().iloc[0]
         rank_df = get_rank_row_over_total(
             rank_pivot=rank_pivot_bac_bloc,
             n_by_session=n_bac_bloc,
@@ -234,7 +395,8 @@ with tab_bac:
             group_col="bloc_epreuve",
             group_value=bloc_value,
         )
-        card_items.append((label, s, rank_df))
+
+        card_items.append((label, s, rank_df, std_df))
 
     render_cards_grid(
         card_items=card_items,
@@ -262,7 +424,17 @@ with tab_dnb:
 
         card_items = []
         for epr in sorted(dnb_etab["epreuve"].dropna().unique().tolist()):
-            s = series_by_sessions(dnb_etab[dnb_etab["epreuve"] == epr], sessions=SESSIONS)
+            sub = dnb_etab[dnb_etab["epreuve"] == epr]
+
+            s = series_by_sessions(sub, sessions=SESSIONS)
+
+            std_df = std_df_by_sessions(
+                sub,
+                sessions=SESSIONS,
+                std_col="ecart_type",
+                fallback_col="ecart_type_imputed",
+            )
+
             rank_df = get_rank_row_over_total(
                 rank_pivot=rank_pivot_dnb,
                 n_by_session=n_dnb_by_ep,
@@ -271,7 +443,8 @@ with tab_dnb:
                 group_col="epreuve",
                 group_value=epr,
             )
-            card_items.append((str(epr), s, rank_df))
+
+            card_items.append((str(epr), s, rank_df, std_df))
 
         render_cards_grid(
             card_items=card_items,
@@ -296,7 +469,17 @@ with tab_spe:
 
         card_items = []
         for epr in sorted(spe_etab["epreuve"].dropna().unique().tolist()):
-            s = series_by_sessions(spe_etab[spe_etab["epreuve"] == epr], sessions=SESSIONS)
+            sub = spe_etab[spe_etab["epreuve"] == epr]
+
+            s = series_by_sessions(sub, sessions=SESSIONS)
+
+            std_df = std_df_by_sessions(
+                sub,
+                sessions=SESSIONS,
+                std_col="ecart_type",
+                fallback_col="ecart_type_imputed",
+            )
+
             rank_df = get_rank_row_over_total(
                 rank_pivot=rank_pivot_spe,
                 n_by_session=n_spe,
@@ -305,7 +488,8 @@ with tab_spe:
                 group_col="epreuve",
                 group_value=epr,
             )
-            card_items.append((str(epr), s, rank_df))
+
+            card_items.append((str(epr), s, rank_df, std_df))
 
         render_cards_grid(
             card_items=card_items,
@@ -314,63 +498,3 @@ with tab_spe:
             year_prev=YEAR_PREV,
             cols=4,
         )
-
-
-
-st.subheader("Dispersion : Moyenne vs Écart-type")
-
-# Color map identique au bar chart
-dnb_color_offset = 5
-color_map = {}
-for i, s in enumerate(SESSIONS):
-    color_map[f"BAC {s}"] = G10[i % len(G10)]
-    color_map[f"DNB {s}"] = G10[(dnb_color_offset + i) % len(G10)]
-
-tab_bac, tab_dnb = st.tabs(["BAC", "DNB"])
-
-with tab_bac:
-
-    df_scope_bac = df_all[df_all["examen_u"] == "BAC"].copy()
-
-    fig = make_mean_std_scatter(
-        df_scope=df_scope_bac,
-        exam="BAC",
-        sessions=SESSIONS,
-        etab_selected=etab,
-        color_map=color_map,
-        group_col=None,
-        group_value=None,
-        only_one_year=None,
-        show_network_trend=True,
-        show_change_badge=True,
-    )
-
-    if fig:
-        st.plotly_chart(fig, width="stretch", config=PLOTLY_CONFIG, key="scatter_bac")
-
-
-with tab_dnb:
-
-    dnb_u_excl = {x.upper().strip() for x in DNB_EPREUVE_EXCLUDE}
-
-    df_scope_dnb = df_all[
-        (df_all["examen_u"] == "DNB") &
-        (df_all["bloc_u"] == "DNB_FINAL") &
-        (~df_all["epreuve_u"].isin(dnb_u_excl))
-    ].copy()
-
-    fig = make_mean_std_scatter(
-        df_scope=df_scope_dnb,
-        exam="DNB",
-        sessions=SESSIONS,
-        etab_selected=etab,
-        color_map=color_map,
-        group_col=None,
-        group_value=None,
-        only_one_year=None,
-        show_network_trend=True,
-        show_change_badge=True,
-    )
-
-    if fig:
-        st.plotly_chart(fig, width="stretch", config=PLOTLY_CONFIG, key="scatter_dnb")
