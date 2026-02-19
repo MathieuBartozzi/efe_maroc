@@ -113,13 +113,7 @@ with c1:
         delta="—" if pd.isna(dlt) else f"{dlt:+.2f}",
         border=True,
     )
-    # st.caption("Rang")
-    # st.dataframe(
-    #     get_rank_row_over_total(rank_bac_global, n_bac, etab=etab, sessions=SESSIONS),
-    #     hide_index=True,
-    #     width='stretch',
-    #     height=70,
-    # )
+   
 
 with c2:
     dnb_mask = (df_e["examen_u"] == "DNB") & (df_e["bloc_u"] == "DNB_FINAL")
@@ -132,13 +126,7 @@ with c2:
         delta="—" if pd.isna(dlt) else f"{dlt:+.2f}",
         border=True,
     )
-    # st.caption("Rang")
-    # st.dataframe(
-    #     get_rank_row_over_total(rank_dnb_global, n_dnb, etab=etab, sessions=SESSIONS),
-    #     hide_index=True,
-    #     width='stretch',
-    #     height=70,
-    # )
+
 st.divider()
 
 
@@ -218,132 +206,6 @@ plutôt qu’en bas à droite
 
 st.divider()
 
-# # =========================================================
-# # ECART AU RESEAU (delta)
-# # =========================================================
-# st.subheader("Evolution des moyennes par épreuve")
-# # =========================================================
-# # TABS
-# # =========================================================
-# tab_bac, tab_dnb, tab_spe = st.tabs(["BAC — Épreuves finales", "DNB — Épreuves finales", "BAC — Spécialités"])
-
-# # =========================================================
-# # TAB 1 — BAC Épreuves finales (cartes par bloc_epreuve)
-# # =========================================================
-# with tab_bac:
-#     bac_etab = df_e[df_e["examen_u"] == "BAC"].copy()
-#     bac_net = df_all[df_all["examen_u"] == "BAC"].copy()
-
-#     rank_pivot_bac_bloc, n_bac_bloc = build_rank_pivot_with_total(
-#         bac_net.dropna(subset=["bloc_epreuve"]).copy(),
-#         group_col="bloc_epreuve",
-#     )
-
-#     target_blocs = [
-#         ("EDS", {"EDS"}),
-#         ("EAF", {"EAF"}),
-#         ("Grand Oral", {"GO", "GRAND ORAL"}),
-#         ("Philosophie", {"PHILO", "PHILOSOPHIE"}),
-#     ]
-
-#     card_items = []
-#     for label, accepted in target_blocs:
-#         m = bac_etab["bloc_u"].isin(accepted)
-#         if bac_etab[m].empty:
-#             continue
-
-#         s = series_by_sessions(bac_etab[m], sessions=SESSIONS)
-
-#         # Valeur pivot (bloc_epreuve) la plus fréquente pour ce label
-#         bloc_value = bac_etab.loc[m, "bloc_epreuve"].mode().iloc[0]
-#         rank_df = get_rank_row_over_total(
-#             rank_pivot=rank_pivot_bac_bloc,
-#             n_by_session=n_bac_bloc,
-#             etab=etab,
-#             sessions=SESSIONS,
-#             group_col="bloc_epreuve",
-#             group_value=bloc_value,
-#         )
-#         card_items.append((label, s, rank_df))
-
-#     render_cards_grid(
-#         card_items=card_items,
-#         sessions=SESSIONS,
-#         year_current=YEAR_CUR,
-#         year_prev=YEAR_PREV,
-#         cols=4,
-#     )
-
-# # =========================================================
-# # TAB 2 — DNB Épreuves finales (cartes par epreuve)
-# # =========================================================
-# with tab_dnb:
-#     dnb_etab = df_e[(df_e["examen_u"] == "DNB") & (df_e["bloc_u"] == "DNB_FINAL")].copy()
-#     dnb_net = df_all[(df_all["examen_u"] == "DNB") & (df_all["bloc_u"] == "DNB_FINAL")].copy()
-
-#     dnb_etab = dnb_etab[~dnb_etab["epreuve_u"].isin({x.upper().strip() for x in DNB_EPREUVE_EXCLUDE})].copy()
-#     dnb_net = dnb_net[~dnb_net["epreuve_u"].isin({x.upper().strip() for x in DNB_EPREUVE_EXCLUDE})].copy()
-
-#     if not dnb_etab.empty:
-#         rank_pivot_dnb, n_dnb_by_ep = build_rank_pivot_with_total(
-#             dnb_net.dropna(subset=["epreuve"]).copy(),
-#             group_col="epreuve",
-#         )
-
-#         card_items = []
-#         for epr in sorted(dnb_etab["epreuve"].dropna().unique().tolist()):
-#             s = series_by_sessions(dnb_etab[dnb_etab["epreuve"] == epr], sessions=SESSIONS)
-#             rank_df = get_rank_row_over_total(
-#                 rank_pivot=rank_pivot_dnb,
-#                 n_by_session=n_dnb_by_ep,
-#                 etab=etab,
-#                 sessions=SESSIONS,
-#                 group_col="epreuve",
-#                 group_value=epr,
-#             )
-#             card_items.append((str(epr), s, rank_df))
-
-#         render_cards_grid(
-#             card_items=card_items,
-#             sessions=SESSIONS,
-#             year_current=YEAR_CUR,
-#             year_prev=YEAR_PREV,
-#             cols=5,
-#         )
-
-# # =========================================================
-# # TAB 3 — BAC Spécialités (EDS) (cartes par epreuve)
-# # =========================================================
-# with tab_spe:
-#     spe_etab = df_e[(df_e["examen_u"] == "BAC") & (df_e["bloc_u"] == "EDS")].copy()
-#     spe_net = df_all[(df_all["examen_u"] == "BAC") & (df_all["bloc_u"] == "EDS")].copy()
-
-#     if not spe_etab.empty:
-#         rank_pivot_spe, n_spe = build_rank_pivot_with_total(
-#             spe_net.dropna(subset=["epreuve"]).copy(),
-#             group_col="epreuve",
-#         )
-
-#         card_items = []
-#         for epr in sorted(spe_etab["epreuve"].dropna().unique().tolist()):
-#             s = series_by_sessions(spe_etab[spe_etab["epreuve"] == epr], sessions=SESSIONS)
-#             rank_df = get_rank_row_over_total(
-#                 rank_pivot=rank_pivot_spe,
-#                 n_by_session=n_spe,
-#                 etab=etab,
-#                 sessions=SESSIONS,
-#                 group_col="epreuve",
-#                 group_value=epr,
-#             )
-#             card_items.append((str(epr), s, rank_df))
-
-#         render_cards_grid(
-#             card_items=card_items,
-#             sessions=SESSIONS,
-#             year_current=YEAR_CUR,
-#             year_prev=YEAR_PREV,
-#             cols=4,
-#         )
 # =========================================================
 # TABS
 # =========================================================
@@ -387,7 +249,8 @@ with tab_bac:
 
         # Valeur pivot (bloc_epreuve) la plus fréquente pour ce label
         bloc_value = sub["bloc_epreuve"].mode().iloc[0]
-        rank_df = get_rank_row_over_total(
+
+        rank_df = get_rank_row_top_percent(
             rank_pivot=rank_pivot_bac_bloc,
             n_by_session=n_bac_bloc,
             etab=etab,
@@ -395,6 +258,7 @@ with tab_bac:
             group_col="bloc_epreuve",
             group_value=bloc_value,
         )
+
 
         card_items.append((label, s, rank_df, std_df))
 
@@ -435,7 +299,7 @@ with tab_dnb:
                 fallback_col="ecart_type_imputed",
             )
 
-            rank_df = get_rank_row_over_total(
+            rank_df = get_rank_row_top_percent(
                 rank_pivot=rank_pivot_dnb,
                 n_by_session=n_dnb_by_ep,
                 etab=etab,
@@ -480,7 +344,7 @@ with tab_spe:
                 fallback_col="ecart_type_imputed",
             )
 
-            rank_df = get_rank_row_over_total(
+            rank_df = get_rank_row_top_percent(
                 rank_pivot=rank_pivot_spe,
                 n_by_session=n_spe,
                 etab=etab,

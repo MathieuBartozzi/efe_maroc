@@ -251,55 +251,7 @@ def make_trend_means_with_sigma_subplot(
             .sort_values("session")
         )
         if not sub_s.empty:
-            # area
-            # fig.add_trace(
-            #     go.Scatter(
-            #         x=sub_s["session"],
-            #         y=sub_s["sigma"],
-            #         mode="none",
-            #         name="σ réseau",
-            #         showlegend=False,
-            #         line=dict(width=2),
-            #         fill="tozeroy",
-            #         opacity=0.25,
-            #         fillcolor="rgba(120,120,120,0.25)",  # 👈 gris clair transparent
-            #         # line=dict(color="rgba(120,120,120,1)"),
-            #         hovertemplate="σ réseau: %{y:.2f}<extra></extra>",
-            #     ),
-            #     row=2,
-            #     col=c,
-            # )
-            # fig.add_trace(
-            #     go.Scatter(
-            #         x=sub_s["session"],
-            #         y=sub_s["sigma"],
-            #         mode="none",
-            #         fill="tozeroy",
-            #         fillcolor="rgba(120,120,120,0.25)",
-            #         hoveron="points+fills",
-            #         hovertemplate="Évolution de la dispersion réseau : %{y:.2f}<extra></extra>",
-            #         showlegend=False,
-            #     ),
-            #     row=2,
-            #     col=c,
-            # )
 
-            # # petite ligne par-dessus pour précision
-            # fig.add_trace(
-            #     go.Scatter(
-            #         x=sub_s["session"],
-            #         y=sub_s["sigma"],
-            #         mode="lines+markers",
-            #         name="σ réseau (ligne)",
-            #         showlegend=False,
-            #         line=dict(width=2, dash="dot"),
-            #         marker=dict(size=6),
-            #         opacity=0.8,
-            #         hovertemplate="σ réseau: %{y:.2f}<extra></extra>",
-            #     ),
-            #     row=2,
-            #     col=c,
-            #)
             # --- area (sans hover) ---
             fig.add_trace(
                 go.Scatter(
@@ -432,6 +384,54 @@ def get_rank_row_over_total(
         for y in sessions
     }])
 
+def get_rank_row_top_percent(
+    rank_pivot: pd.DataFrame,
+    n_by_session: pd.Series,
+    etab: str,
+    sessions: list[int],
+    group_col: str | None = None,
+    group_value: str | None = None,
+) -> pd.DataFrame:
+    """
+    Retourne une DF 1 ligne: colonnes = sessions (str) au format 'Top xx%'.
+    Plus petit = meilleur (Top 1% = excellent).
+    """
+
+    def empty_row():
+        return pd.DataFrame([{str(y): "—" for y in sessions}])
+
+    if rank_pivot is None or rank_pivot.empty:
+        return empty_row()
+
+    # --- récupération série des rangs
+    if group_col is None:
+        if etab not in rank_pivot.index:
+            return empty_row()
+        s = rank_pivot.loc[etab]
+    else:
+        if group_value is None:
+            return empty_row()
+        key = (group_value, etab)
+        if key not in rank_pivot.index:
+            return empty_row()
+        s = rank_pivot.loc[key]
+
+    row = {}
+    for y in sessions:
+        r = s.get(y, np.nan)
+        n = n_by_session.get(y, np.nan)
+
+        if pd.isna(r) or pd.isna(n) or int(n) == 0:
+            row[str(y)] = "—"
+        else:
+            r_i = int(r)
+            n_i = int(n)
+            top_pct = 100.0 * r_i / n_i
+            row[str(y)] = f"{top_pct:.0f}%"
+
+    return pd.DataFrame([row])
+
+
 
 # =========================================================
 #UI CARDS (Streamlit + Altair)
@@ -491,225 +491,6 @@ def _center_std(std_df: pd.DataFrame | None) -> pd.DataFrame | None:
 # -------------------------
 # CARD
 # -------------------------
-# def render_card(
-#     title: str,
-#     s: pd.Series,
-#     rank_df: pd.DataFrame,
-#     sessions: list[int],
-#     year_current: int,
-#     year_prev: int,
-#     y_domain=(9, 18),
-#     std_df: pd.DataFrame | None = None,
-# ):
-#     """Carte KPI + mini courbe moyenne + mini courbe écart-type centré + mini tableau rang/total."""
-#     if s.isna().all():
-#         return
-
-#     v_cur = s.get(year_current, np.nan)
-#     v_prev = s.get(year_prev, np.nan)
-
-#     value_str = "—" if pd.isna(v_cur) else f"{float(v_cur):.2f}"
-#     delta_str = "—" if (pd.isna(v_cur) or pd.isna(v_prev)) else f"{float(v_cur - v_prev):+.2f}"
-
-#     with st.container(border=True):
-#         st.metric(title, value=value_str, delta=delta_str)
-
-#         # --------
-#         # Chart 1: MOYENNE
-#         # --------
-#         mean_df = pd.DataFrame(
-#             {"session": [str(y) for y in sessions], "mean": [s.get(y, np.nan) for y in sessions]}
-#         ).dropna(subset=["mean"])
-
-#         if not mean_df.empty:
-#             chart_mean = (
-#                 alt.Chart(mean_df)
-#                 .mark_line(point=True)
-#                 .encode(
-#                     x=alt.X("session:N", title=None, axis=alt.Axis(labelAngle=-45)),
-#                     y=alt.Y("mean:Q", title=None, scale=alt.Scale(domain=list(y_domain))),
-#                     tooltip=[
-#                         alt.Tooltip("session:N", title="Session"),
-#                         alt.Tooltip("mean:Q", title="Moyenne", format=".2f"),
-#                     ],
-#                 )
-#                 .properties(
-#                     height=95,
-#                     title=alt.TitleParams(
-#                         text=f"Moyenne {sessions[0]}→{sessions[-1]}",
-#                         anchor="start",
-#                         fontSize=11,
-#                         fontWeight="normal",
-#                         dy=2,
-#                     ),
-#                 )
-#             )
-#             st.altair_chart(chart_mean, width="stretch")
-
-#         # --------
-#         # Chart 2: ÉCART-TYPE centré (σ - moy(σ)) + aire +/- + ligne 0
-#         # --------
-#         stdc = _center_std(std_df)
-
-#         if stdc is not None and not stdc.empty:
-#             m = float(np.nanmax(np.abs(stdc["std_centered"].values))) if len(stdc) else 0.0
-#             pad = 0.15 * m
-#             dom = [-(m + pad), (m + pad)] if m > 0 else [-1, 1]
-
-#             base = alt.Chart(stdc)
-
-#             area = base.mark_area(opacity=0.25).encode(
-#                 x=alt.X("session:N", title=None, axis=alt.Axis(labelAngle=-45)),
-#                 y=alt.Y(
-#                     "std_centered:Q",
-#                     title=None,
-#                     scale=alt.Scale(domain=dom),
-#                     axis=alt.Axis(ticks=False, labels=False, grid=True, domain=False),
-#                 ),
-#                 y2=alt.Y2("zero:Q"),
-#                 tooltip=[
-#                     alt.Tooltip("session:N", title="Session"),
-#                     alt.Tooltip("std:Q", title="σ", format=".2f"),
-#                     alt.Tooltip("std_centered:Q", title="Δσ vs moy", format="+.2f"),
-#                 ],
-#             )
-
-#             line = base.mark_line(point=True).encode(
-#                 x=alt.X("session:N", title=None, axis=alt.Axis(labelAngle=-45)),
-#                 y="std_centered:Q",
-#             )
-
-#             zero_rule = alt.Chart(pd.DataFrame({"y": [0]})).mark_rule(opacity=0.5).encode(y="y:Q")
-
-#             chart_std = (
-#                 (area + line + zero_rule)
-#                 .properties(
-#                     height=80,
-#                     title=alt.TitleParams(
-#                         text=f"Écart-type {sessions[0]}→{sessions[-1]} (centré)",
-#                         anchor="start",
-#                         fontSize=11,
-#                         fontWeight="normal",
-#                         dy=2,
-#                     ),
-#                 )
-#             )
-#             st.altair_chart(chart_std, width="stretch")
-
-#         st.caption("Rang")
-#         st.dataframe(rank_df, hide_index=True, width="stretch", height=70)
-
-# def render_card(
-#     title: str,
-#     s: pd.Series,
-#     rank_df: pd.DataFrame,
-#     sessions: list[int],
-#     year_current: int,
-#     year_prev: int,
-#     y_domain=(9, 18),          # gardé mais plus utilisé par défaut (on auto-scale)
-#     std_df: pd.DataFrame | None = None,   # NEW
-# ):
-#     """Carte KPI + mini courbe moyenne + mini courbe écart-type centré + mini tableau rang/total."""
-#     if s.isna().all():
-#         return
-
-#     v_cur = s.get(year_current, np.nan)
-#     v_prev = s.get(year_prev, np.nan)
-
-#     value_str = "—" if pd.isna(v_cur) else f"{float(v_cur):.2f}"
-#     delta_str = "—" if (pd.isna(v_cur) or pd.isna(v_prev)) else f"{float(v_cur - v_prev):+.2f}"
-
-#     with st.container(border=True):
-#         st.metric(title, value=value_str, delta=delta_str)
-
-#         # =========================
-#         # 1) MINI CHART MOYENNE (axe Y minimal, domaine auto)
-#         # =========================
-#         mean_df = pd.DataFrame(
-#             {"session": [str(y) for y in sessions], "mean": [s.get(y, np.nan) for y in sessions]}
-#         ).dropna(subset=["mean"])
-
-#         if not mean_df.empty:
-#             y_min = float(mean_df["mean"].min())
-#             y_max = float(mean_df["mean"].max())
-#             span = (y_max - y_min) if y_max > y_min else 1.0
-#             pad = max(0.25, 0.15 * span)
-#             dom_mean = [y_min - pad, y_max + pad]
-#             # dom_mean = [10, 20]
-
-#             chart_mean = (
-#                 alt.Chart(mean_df)
-#                 .mark_line(point=True)
-#                 .encode(
-#                     x=alt.X("session:N", title=None, axis=alt.Axis(labelAngle=-45)),
-#                     y=alt.Y(
-#                         "mean:Q",
-#                         title=None,
-#                         scale=alt.Scale(domain=dom_mean),
-#                         # axis=None,  # ✅ EXACTEMENT “minimal” : pas d’axe Y
-#                     ),
-#                     tooltip=[
-#                         alt.Tooltip("session:N", title="Session"),
-#                         alt.Tooltip("mean:Q", title="Moyenne", format=".2f"),
-#                     ],
-#                 )
-#                 .properties(height=110, title=f"Moyenne {sessions[0]}→{sessions[-1]}")
-#             )
-#             st.altair_chart(chart_mean, width="stretch")
-
-#         # =========================
-#         # 2) MINI CHART ÉCART-TYPE CENTRÉ (axe Y minimal aussi)
-#         # std_df doit contenir: ["session","std"] où std = ecart_type (éventuellement imputé)
-#         # =========================
-#         if std_df is not None and not std_df.empty:
-#             tmp = std_df.copy()
-#             tmp = tmp.dropna(subset=["std"]).copy()
-#             tmp["session"] = tmp["session"].astype(int).astype(str)
-#             tmp = tmp[tmp["session"].isin([str(y) for y in sessions])].sort_values("session")
-
-#             if not tmp.empty:
-#                 mu = float(tmp["std"].mean())
-#                 tmp["std_centered"] = tmp["std"] - mu
-#                 tmp["zero"] = 0.0
-
-#                 m = float(np.nanmax(np.abs(tmp["std_centered"].values))) if len(tmp) else 0.0
-#                 m = max(m, 0.25)      # ✅ évite une courbe “collée” à 0 si variations minuscules
-#                 pad = 0.15 * m
-#                 dom_std = [-(m + pad), (m + pad)]
-
-#                 base = alt.Chart(tmp)
-
-#                 area = base.mark_area(opacity=0.25).encode(
-#                     x=alt.X("session:N", title=None, axis=alt.Axis(labelAngle=-45)),
-#                     y=alt.Y(
-#                         "std_centered:Q",
-#                         title=None,
-#                         scale=alt.Scale(domain=dom_std),
-#                         axis=None,  # ✅ pas d’axe Y (même look)
-#                     ),
-#                     y2=alt.Y2("zero:Q"),
-#                     tooltip=[
-#                         alt.Tooltip("session:N", title="Session"),
-#                         alt.Tooltip("std:Q", title="σ", format=".2f"),
-#                         alt.Tooltip("std_centered:Q", title="Δσ vs moy", format="+.2f"),
-#                     ],
-#                 )
-
-#                 line = base.mark_line(point=True).encode(
-#                     x=alt.X("session:N", title=None, axis=alt.Axis(labelAngle=-45)),
-#                     y="std_centered:Q",
-#                 )
-
-#                 zero_rule = alt.Chart(pd.DataFrame({"y": [0]})).mark_rule(opacity=0.5).encode(y="y:Q")
-
-#                 chart_std = (area + line + zero_rule).properties(
-#                     height=90,
-#                     title=f"Ecart-type {sessions[0]}→{sessions[-1]} (centré)",
-#                 )
-#                 st.altair_chart(chart_std, width="stretch")
-
-#         st.caption("Rang")
-#         st.dataframe(rank_df, hide_index=True, width="stretch", height=70)
 
 def render_card(
     title: str,
@@ -782,7 +563,7 @@ def render_card(
                 st.caption("Ecart-type")
                 st.altair_chart(chart_std, width="stretch")
 
-        st.caption("Rang")
+        st.caption("Top x % (rang/total)")
         st.dataframe(rank_df, hide_index=True, width="stretch", height=70)
 
 # -------------------------
